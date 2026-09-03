@@ -1,0 +1,13 @@
+[project]
+name = "bhdiskplots"
+version = "0.1.0"
+description = "BHDisk paper plotting and gravitational-wave post-processing"
+requires-python = ">=3.11"
+dependencies = [
+    "adjusttext>=1.3,<2",
+    "matplotlib>=3.8,<4",
+    "numpy>=1.26,<3",
+]
+
+[tool.uv]
+package = false

@@ -1,0 +1,696 @@
+import cmath 
+import math
+import numpy as np
+from matplotlib import rc
+import matplotlib
+#matplotlib.use("AGG")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator, ScalarFormatter, FormatStrFormatter
+from scipy.interpolate import interp1d
+from scipy import interpolate
+import scipy
+import scipy.fftpack
+from scipy import optimize
+from scipy import signal
+from scipy import integrate
+
+import astropy.cosmology as cosmology
+from astropy.coordinates import Distance
+from astropy import units as u
+import astropy.constants as consts
+
+import pylab
+#from scipy import pi
+from matplotlib.lines import Line2D
+import sys
+import os
+
+import spheroidal as sph
+
+scratch = os.environ["SCRATCH"] + "/"
+home = os.environ["HOME"] + "/"
+plot_loc = home + "NS_NS_sims/plotting_scripts/"
+#psi_hlm_path = "/home/ill/ill433847/psi4_hlm"
+psi_hlm_path = scratch + "Monoenergetic_N25_yc0.819_ID2" + "/psi4_hlm"
+
+f_Nyquist = 1.0
+MSun_in_ms = 0.0049272004672325466
+MSun_in_s = 0.001*MSun_in_ms
+MSun_in_s = MSun_in_ms/1000.0
+
+sys.path.append(home + 'phenompy')
+
+#
+"""Euler's Number (Not in SciPy or NumPy Constants)"""
+gamma_E = 0.5772156649015328606065120900824024310421
+"""NOTE: the values are commented out below to match the previous code
+- should be uncommented before publication"""
+#c = consts.c.value #Speed of light m/s
+#G = consts.G.to('m3/(s2 kg)').value*consts.M_sun.value #Gravitational constant in m**3/(s**2 SolMass)=6.674*10**(-11)*(1.98855*10**30)
+#s_solm = G / consts.c.value**3#G/c**3#seconds per solar mass =492549095*10**(-14)
+#mpc = 1/consts.c.to('Mpc/s').value#consts.kpc.to('m')*1000/c#Mpc in sec =3085677581*10**(13)/c
+#H0 = cosmology.Planck15.H0#6780*10**(-2)/(3 * 10**5)#67.80/(3.086*10**19) #Hubble constant in [1/Mpc]
+#hplanck = consts.h.to('eV s').value #Planck Constant in eV s
+c = 299792458#consts.c #Speed of light m/s
+G = 6.674*10**(-11)*(1.98855*10**30)#consts.G.to('m**3/(s**2*solMass)') #Gravitational constant in m**3/(s**2 SolMass)
+G0 = 6.674*10**(-11) # in SI units
+s_solm =492549095*10**(-14) #G/c**3#seconds per solar mass
+mpc = 3085677581*10**(13)/c #consts.kpc.to('m')*1000/c # Mpc in sec
+mpc_in_MSun = mpc/MSun_in_s
+print("mpc_in_MSun = {:.2e}".format(mpc_in_MSun))
+kpc = 3085677581*10**(10)/c # kpc in sec
+#H0 = cosmology.Planck15.H0#6780*10**(-2)/(3 * 10**5)#67.80/(3.086*10**19) #Hubble constant in [1/Mpc]
+hplanck = 4.135667662e-15 #ev s
+month = 30*24*3600 
+AU = 1.495978707*1e11/c
+#
+
+from phenompy.gr import IMRPhenomD as imr
+#from phenompy.utilities import c, mpc, s_solm, G, G0
+from astropy.cosmology import Planck18 as cosmo_model1
+
+def get_z_from_luminosity_d(Mpc_distance):
+  redshift = Distance(float(Mpc_distance),unit=u.Mpc).compute_z(cosmology = cosmology.Planck18)
+  return redshift
+
+def get_lum_dist_from_z(z):
+  return Distance(z=z).value
+
+def get_IMR_PhenomD_binary_fft(m0_in_MSun,d_lum):
+  #Defining Parameters for the model 
+  dl = float(d_lum*mpc)
+  mass1 = float(m0_in_MSun*s_solm)
+  mass2 = float(m0_in_MSun*s_solm)
+  MB = mass1 + mass2
+  z = get_z_from_luminosity_d(d_lum)
+  #
+  z = np.float64(z)
+  f_max = 10.0/(MB*np.sqrt(27)*2*np.pi*(1.0+z)) # in Hz
+  f_min = 0.001/(MB*(1.0+z))
+  f = np.logspace(np.log10(f_min),np.log10(f_max),1024)
+  #
+  etaB = np.sqrt(mass1*mass2/MB)
+  spin1 = 0.0
+  spin2 = 0.0
+  detect = 'aLIGO' #This will be the detector for calculating Fisher Matricies
+  NSflag = False
+  #Lambda_tidal = 0.0
+  #print("1 s_solm = ", s_solm)
+  #print("M = ", MB
+  model1 = imr(mass1 = mass1,mass2 = mass2, spin1 = spin1,spin2 = spin2,collision_time=0.0,collision_phase=0.0,Luminosity_Distance = dl,N_detectors = 1,NSflag=NSflag, cosmo_model = cosmo_model1)
+  #times_in_ms = np.linspace(-2000.0,20.0,1000000)
+  #times = times_in_ms*0.001
+  #h = model1.calculate_waveform(times)
+  #factor = Amp/np.max(np.abs(h))
+  amp,phase,h = model1.calculate_waveform_vector(f)
+  return (f,amp)
+
+M_ADM_dict = {
+  "Monoenergetic_N25_yc0.819" : 12.007,
+  "Monoenergetic_N25_yc0.819_ID2" : 12.039101349
+}
+
+def smart_genfromtxt(file_path):
+  data = []
+  with open(file_path,"r") as f:
+    for line in f:
+      li=line.strip()
+      if not li.startswith("#"):
+        data_line = line.split()[:27]
+        data.append(data_line)
+  data = np.array(data,dtype=float)
+  return data
+
+def clean_data(data):
+  reversed_data = np.flip(data,0)
+  # get unique row mask
+  unique_keys, indices = np.unique(reversed_data[:,0], return_index=True)
+  out_data = reversed_data[indices]
+  return out_data
+
+rc = {"font.family" : "serif", 
+      "mathtext.fontset" : "cm"}
+plt.rcParams.update(rc)
+
+plt.rcParams["font.family"] = "serif"
+
+# from https://iopscience.iop.org/article/10.1088/1361-6382/ab1101/pdf 
+# equation (1)
+def LISA_sens_curve(f):
+  # assume f is in Hz
+  P_OMS = (1.5*10**(-11))**2 # in m^2 Hz^{-1}
+  P_ACC = (3.0*10**(-15))**2 * (1 + (0.4*0.001/f)**2) # in m^2 s^{-4} Hz^{-1}
+  A = 9.0E-45 
+  # noise parameters for S_c, the confusion noise, are taken for a 4 yr observation time
+  # from Table 1. 
+  alpha = 0.138
+  beta = -221
+  kappa = 521
+  gamma = 1680
+  f_k = 0.00113
+  S_c = A * f**(-7.0/3)*np.exp(-f**alpha + beta*f*np.sin(kappa*f))*(1 + np.tanh(gamma*(f_k - f))) # in Hz^{-1}
+  L = 2.5 * 10**9 # m
+  f_star = 0.001*19.09
+  S_n = 10.0/(3*L**2)*(P_OMS * 4*P_ACC/(2*np.pi*f)**4)*(1 + 0.6*(f/f_star)**2) #+ S_c # in Hz^{-1}
+  S_0 = np.sqrt(P_OMS * 10.0/(3*L**2))
+  f_1 = (4*(3.0*10**(-15))**2/P_OMS)**(0.25)/(2*np.pi)
+  f_2 = (f_1**4 * 0.0004**2)**(1.0/6.0)
+  f_3 = f_star/np.sqrt(0.6)
+  #print(S_0)
+  #print("f_1 = ",f_1)
+  #print("f_2 = ",f_2)
+  #print("f_3 = ",f_3)
+  # sqrt(S_n) = S_0 * np.sqrt( (1 + (f_1/f)**4 + (f_2/f)**6 )*( 1 + (f/f_3)**2 ) ) 
+  # h_n = np.sqrt(S_n)
+  #
+  ASD_LISA = np.sqrt(2) * S_0 * np.sqrt( (1 + (f_1/f)**4 + (f_2/f)**6 )*( 1 + (f/f_3)**2 ) + S_c/S_0**2)
+  return ASD_LISA
+
+# https://journals.aps.org/prd/pdf/10.1103/PhysRevD.83.044011 
+# Eq. (5)
+def DECIGO_sens_curve(f):
+  f_p = 7.36
+  S_h = 6.53*10**(-49)*(1 + (f/f_p)**2)+4.45*10**(-51)*f**(-4)/(1+(f/f_p)**2)\
+        + 4.94*10**(-52)*f**(-4)
+  return np.sqrt(2*S_h)
+
+r_index = 4
+
+"""def get_Psi_full(data,theta,phi):
+  rPsi_Re_full = np.zeros(len(data[:,0]))
+  rPsi_Im_full = np.zeros(len(data[:,0]))
+  r_ext = data[0,-4]
+  n_mode = 0
+  for ll in [2,3,4,5,6,7,8]:
+    for im in range(0,2*ll+1):
+      mm = ll - im
+      rPsi_Re = data[:,1+2*n_mode]
+      rPsi_Im = data[:,2+2*n_mode]
+      rPsi = rPsi_Re + 1j*rPsi_Im
+      S = sph.harmonic(-2, ll, mm, 0.0)
+      #rh_plus_full += np.real(special.sph_harm(mm,ll,theta,phi))*rh_plus
+      #rh_cross_full += np.real(special.sph_harm(mm,ll,theta,phi))*rh_plus
+      rPsi_Re_full += np.real(S(theta,phi)*rPsi)
+      rPsi_Im_full += np.imag(S(theta,phi)*rPsi)
+      #rh_mag = np.sqrt(rh_plus**2 + rh_cross**2)
+      n_mode += 1
+  rPsi_Re_full *= r_ext
+  rPsi_Im_full *= r_ext
+  return (rPsi_Re_full,rPsi_Im_full)"""
+
+"""def get_h_full(data,theta,phi):
+  rh_plus_full = np.zeros(len(data[:,0]))
+  rh_cross_full = np.zeros(len(data[:,0]))
+  n_mode = 0
+  for ll in [2,3,4,5,6,7,8]:
+    for im in range(0,2*ll+1):
+      mm = ll - im
+      rh_plus = data[:,1+2*n_mode]
+      rh_cross = data[:,2+2*n_mode]
+      S = sph.harmonic(-2, ll, mm, 0.0)
+      #rh_plus_full += np.real(special.sph_harm(mm,ll,theta,phi))*rh_plus
+      #rh_cross_full += np.real(special.sph_harm(mm,ll,theta,phi))*rh_plus
+      rh_plus_full += np.real(S(theta,phi))*rh_plus
+      rh_cross_full += np.real(S(theta,phi))*rh_cross
+      #rh_mag = np.sqrt(rh_plus**2 + rh_cross**2)
+      n_mode += 1
+  return (rh_plus_full,rh_cross_full)"""
+
+merger_coeff = 0.5
+
+def get_fft(rhp,rhc,npadding,dt,alpha):
+  fs = 1.0/dt
+  f_Nyquist = fs/2.0
+  padding = np.zeros(npadding)
+  window = signal.windows.tukey(len(rhp),alpha) # Tukay signal window for the FFT
+  hp_windowed_padded = np.concatenate((padding,rhp*window,padding))
+  hc_windowed_padded = np.concatenate((padding,rhc*window,padding))
+  Nt = len(hp_windowed_padded)
+  f = np.linspace(0.0, (Nt-1)/Nt*fs, Nt)
+  FFT_hp = np.abs(scipy.fftpack.fft(hp_windowed_padded))*dt
+  FFT_hc = np.abs(scipy.fftpack.fft(hc_windowed_padded))*dt  
+  FFT_h_total = (0.5*(FFT_hp**2+FFT_hc**2))**(0.5)
+  N_max = int(Nt/2.0)
+  f = f
+  FFT_h_total = FFT_h_total
+  return (f[2:N_max],FFT_h_total[2:N_max])
+
+def get_Psi_full(data,theta,phi):
+  rPsi_Re_full = np.zeros(len(data[:,0]))
+  rPsi_Im_full = np.zeros(len(data[:,0]))
+  r_ext = data[0,-4]
+  n_mode = 0
+  for ll in [2,3,4,5,6,7,8]:
+    for im in range(0,2*ll+1):
+      mm = ll - im
+      rPsi_Re = data[:,1+2*n_mode]
+      rPsi_Im = data[:,2+2*n_mode]
+      rPsi = rPsi_Re + 1j*rPsi_Im
+      S = sph.harmonic(-2, ll, mm, 0.0)
+      #rh_plus_full += np.real(special.sph_harm(mm,ll,theta,phi))*rh_plus
+      #rh_cross_full += np.real(special.sph_harm(mm,ll,theta,phi))*rh_plus
+      rPsi_Re_full += np.real(S(theta,phi)*rPsi)
+      rPsi_Im_full += np.imag(S(theta,phi)*rPsi)
+      #rh_mag = np.sqrt(rh_plus**2 + rh_cross**2)
+      n_mode += 1
+  rPsi_Re_full *= r_ext
+  rPsi_Im_full *= r_ext
+  return (rPsi_Re_full,rPsi_Im_full)
+
+def get_fft_Psi_full(data,theta,phi,alpha,npadding):
+  rPsi_Re_full,rPsi_Im_full = get_Psi_full(data,theta,phi)
+  dt = (data[1,0] - data[0,0])  # dt=(tb-ta)/(Nt-1)
+  f, fft_Psi = get_fft(rPsi_Re_full,rPsi_Im_full,npadding,dt,alpha)
+  return (f, fft_Psi)
+
+def get_Psi_averaged_mean(data,alpha,npadding,M,sim_name):
+  """ here using <\tilde{Psi}> = 1/4\pi \int \vert \tilde{\Psi} \vert \dd \Omega } """
+  """ i.e. the mean abs """
+  Nphi = 64
+  Ntheta = 64
+  out_filename = sim_name + "_Psi_fft_averaged_mean_Nphi{:d}_Ntheta{:d}".format(Nphi,Ntheta)
+  try:
+    #if (1==1):
+    out_data = np.load(out_filename + ".npy")
+    f = out_data[:,0]
+    fft_Psi_out = out_data[:,1]
+  except:
+    r_ext = data[0,-4]
+    r_ext_star = r_ext + 2*M*np.log((r_ext/(2.0*M)) - 1.0)
+    data = data[data[:,0]>=r_ext_star,:]
+    #
+    phi_arr = np.linspace(0.0,2*np.pi,Nphi)
+    cos_theta_arr = np.linspace(-1.0,1.0,Ntheta)
+    theta_arr = np.arccos(cos_theta_arr)
+    dphi = phi_arr[1] - phi_arr[0]
+    dcos_theta = cos_theta_arr[1] - cos_theta_arr[0]
+    f, fft_Psi = get_fft_Psi_full(data,0.0,0.0,alpha,npadding)
+    fft_Psi_out = np.zeros(len(fft_Psi))
+    ncount = 0
+    for iphi in range(0,len(phi_arr)):
+      for jtheta in range(0,len(theta_arr)):
+        f, fft_Psi = get_fft_Psi_full(data,theta_arr[jtheta],phi_arr[iphi],alpha,npadding)
+        fft_Psi_out += dphi*dcos_theta*np.abs(fft_Psi)
+        ncount += 1
+        print("\r>> integrated {:.3f}%".format(100.0*ncount/(Nphi*Ntheta)),end="",flush=True)
+    fft_Psi_out = fft_Psi_out/(4*np.pi)
+    out_data = np.column_stack((f, fft_Psi_out))
+    np.save(out_filename,out_data)
+  return (f[3:], fft_Psi_out[3:])
+
+def get_Psi_averaged_rms(data,npadding,dt,alpha,M):
+  """ here using <\tilde{Psi}> = sqrt{ 1/4\pi \int \vert \tilde{\Psi} \vert^2 \dd \Omega } """
+  """ i.e. the rms """
+  r_ext = data[0,-4]
+  r_ext_star = r_ext + 2*M*np.log((r_ext/(2.0*M)) - 1.0)
+  data = data[data[:,0]>=r_ext_star,:]
+  Nt = len(data[:,0])+2*npadding
+  N_max = int(Nt/2.0)
+  rPsi_sum_of_modes = np.zeros(N_max-2)
+  r_ext = data[0,-4]
+  n_mode = 0
+  for ll in [2,3,4,5,6,7,8]:
+    for im in range(0,2*ll+1):
+      mm = ll - im
+      rPsi_Re = data[:,1+2*n_mode]
+      rPsi_Im = data[:,2+2*n_mode]
+      f, fft_Psi = get_fft(rPsi_Re,rPsi_Im,npadding,dt,alpha)
+      rPsi_sum_of_modes += np.abs(fft_Psi)**2/(4*np.pi)
+      n_mode += 1
+  return (f[3:],np.sqrt(rPsi_sum_of_modes[3:])*r_ext)
+
+def get_hphc_averaged_full(data,npadding,dt,alpha,M):
+  r_ext = data[0,-4]
+  r_ext_star = r_ext + 2*M*np.log((r_ext/(2*M)) - 1.0)
+  data = data[data[:,0]>=r_ext_star,:]
+  Nt = len(data[:,0])+2*npadding
+  N_max = int(Nt/2.0)
+  rhphc_sum_of_modes = np.zeros(N_max-2)
+  n_mode = 0
+  for ll in [2,3,4,5,6,7,8]:
+    for im in range(0,2*ll+1):
+      mm = ll - im
+      rh_plus = data[:,1+2*n_mode]
+      rh_cross = data[:,2+2*n_mode]
+      f, fft_hphc = get_fft(rh_plus,rh_cross,npadding,dt,alpha)
+      rhphc_sum_of_modes += np.abs(fft_hphc)**2/(4*np.pi)
+      n_mode += 1
+  return (f,np.sqrt(rhphc_sum_of_modes))
+
+def add_detector_label_text(ax,label,f,sens,f0,legend_font):
+  x1 = f0
+  index_text = np.argmin(np.abs(f - f0))
+  y1 = sens[index_text]
+  #x1_disp, y1_disp = ax.transData.transform((x1,y1))
+  n_space = 3
+  x2 = f[index_text+n_space]
+  y2 = sens[index_text+n_space]
+  #x2_disp, y2_disp = ax.transData.transform((x2,y2))
+  angle = np.arctan2((y2-y1),(x2-x1))*180.0/np.pi
+  #ax.plot([x1,x2],[y1,y2],"x",ms=10)
+  ax.text(x1,y1,label,verticalalignment='center',rotation_mode='anchor',rotation=angle,fontsize=legend_font,color="k",bbox=dict(boxstyle="square",fc="white",edgecolor='none',pad=0.1),transform_rotates_text=True)
+
+def get_hc_curve(sim_name,r_index,m_BH_in_MSun,Mpc_dist):
+  M = M_ADM_dict[sim_name]
+  dis = Mpc_dist * mpc_in_MSun
+  z = get_z_from_luminosity_d(Mpc_dist)
+  #alpha_list = [0.01, 0.05, 0.1, 0.25]
+  #
+  hphc_data = np.genfromtxt(psi_hlm_path + "/" + sim_name + "_Momegamin_0.1/rhphc.{:d}.dat".format(r_index))
+  Psi_data = np.genfromtxt(psi_hlm_path + "/" + sim_name + "_Momegamin_0.1/Psi4_rad.mon_sorted.{:d}".format(r_index))
+  dt = (hphc_data[1,0] - hphc_data[0,0])  # dt=(tb-ta)/(Nt-1)
+  alpha = 0.05 # use alpha = 0.1, beta = 0.0 for the IR cases to get f_peak and f_2+/-0
+  npadding = 500
+  #print("len(hphc_data = ", len(hphc_data[:,0]))
+  #print("len(Psi_data = ", len(Psi_data[:,0]))
+  m_BH = 0.5
+  f_max = 1.0/(4*np.pi*m_BH) 
+  #(np.sqrt(27)*2*m_BH*2*np.pi) # using 2 pi QNM_freq ~ 1/(sqrt(27)M)
+  if use_mean_or_rms:
+    f_Psi, fft_Psi = get_Psi_averaged_mean(Psi_data,alpha,npadding,M,sim_name)
+  else:
+    f_Psi, fft_Psi = get_Psi_averaged_rms(Psi_data,npadding,dt,alpha,M)
+  #f_hphc, fft_hphc = get_hphc_averaged_full(hphc_data,npadding,dt,alpha,M)
+  #
+  fft_Psi = fft_Psi[f_Psi<f_max]
+  f_Psi = f_Psi[f_Psi<f_max]
+  #fft_hphc = fft_hphc[f_hphc<f_max]
+  #f_hphc = f_hphc[f_hphc<f_max]
+  #
+  #print("f_Psi[0] = ", f_Psi[0])
+  #print("f_hphc[0] = ", f_hphc[0])
+  omega_Psi = 2*np.pi*f_Psi
+  fft_Psi /= omega_Psi**2
+  #
+  code_units_to_m0 = 1/m_BH
+  code_units_to_MSun = code_units_to_m0 * m_BH_in_MSun
+  code_units_to_ms = code_units_to_MSun*MSun_in_ms 
+  #
+  #f_in_kHz = f_Psi/code_units_to_ms
+  # ASD = 2 f^{1/2} | h(f) |, units of Hz^{-1/2}
+  ASD_Psi_scaleless = 2.0 * fft_Psi * np.sqrt(f_Psi) * code_units_to_m0**(1.5) 
+  ASD_Psi_scaled = ASD_Psi_scaleless * MSun_in_s**(0.5)
+  ASD_Psi = ASD_Psi_scaled * m_BH_in_MSun**(1.5) * (1.0+z)**1.5 / dis
+  # hc = 2 f | h(f) | = dimensionless
+  hc_scaleless = 2.0 * fft_Psi * f_Psi * code_units_to_m0
+  hc = hc_scaleless * m_BH_in_MSun * (1.0+z) / dis
+  print("fM at max h_c = ", M*f_Psi[np.argmax(hc)])
+  #
+  f_in_Hz_scaleless = f_Psi/(MSun_in_s*(1.0+z))
+  f_in_Hz = f_in_Hz_scaleless/code_units_to_MSun
+  return (f_in_Hz,hc,ASD_Psi)
+
+use_log = True
+use_mean_or_rms = True
+
+def get_detector_curves():
+  f_detector_list = []
+  y_detector_list = []
+  #
+  detector_dict = {}
+  #
+  ## ground based detector sky-averaged response = sqrt{0.2}
+  ground_detector_90deg_response = np.sqrt(1.0/5.0)
+  data = np.genfromtxt("aLIGO_psd_curve.txt") # 
+  f_detector = data[:,0] 
+  ASD_detector = data[:,1]/ground_detector_90deg_response
+  detector_dict["aLIGO"] = (f_detector,ASD_detector)
+  #
+  ## sky averaged response for the ET (triangular) ground based detector <F> = sqrt{2/5}*(3/2)
+  ## (https://arxiv.org/pdf/1201.3563 pg. 4) 
+  ground_triangle_response = np.sqrt(2.0/5.0)*(3.0/2.0)
+  data = np.genfromtxt("ET_D_sensitivity_curve.txt") #
+  f_detector = data[:,0] 
+  ASD_detector = data[:,1]/ground_triangle_response 
+  detector_dict["ET-D"] = (f_detector,ASD_detector)
+  #
+  f_detector = np.logspace(-5.0,0.0,1024) # from 10^{-5} Hz to 1 Hz
+  ASD_detector = LISA_sens_curve(f_detector)
+  detector_dict["LISA"] = (f_detector,ASD_detector)
+  #
+  f_detector = np.logspace(-3.0,1.0,1024)
+  ASD_detector = DECIGO_sens_curve(f_detector)
+  detector_dict["DECIGO"] = (f_detector,ASD_detector)
+  #
+  data = np.genfromtxt("LIGO_NG_detector_sensitivity.txt")
+  f_detector = data[:,0]
+  ASD_detector = data[:,3]/ground_detector_90deg_response
+  detector_dict["CE"] = (f_detector,ASD_detector)
+  #
+  data = np.genfromtxt("sensitivity_curves_NG15yr_fullPTA.txt")
+  f_detector = data[:,0]
+  ASD_detector = np.sqrt(data[:,2])
+  ASD_detector = (data[:,1]/np.sqrt(f_detector))/2.6 # see https://arxiv.org/pdf/1907.04341 for factor of 2.6
+  detector_dict["NANOGrav"] = (f_detector,ASD_detector)
+  #
+  return detector_dict
+
+detector_dict = get_detector_curves()
+
+def get_SNR(sim_name,m_BH_in_MSun,detector_name,Mpc_dist):
+  f_detector, ASD_detector = detector_dict[detector_name]
+  y_detector = np.log10(ASD_detector)
+  f, hc, ASD = get_hc_curve(sim_name,4,m_BH_in_MSun,Mpc_dist)
+  f_min = np.max((np.min(f),np.min(f_detector)))
+  f_max = np.min((np.max(f),np.max(f_detector)))
+  ASD = ASD[(f>=f_min)*(f<=f_max)]
+  f = f[(f>=f_min)*(f<=f_max)]
+  y_data = np.log10(ASD)
+  y_detector_interp = np.interp(f,f_detector,y_detector)
+  integrand = 10**(2*(y_data - y_detector_interp))
+  log_f = np.log(f)
+  integral = integrate.simps(integrand,log_f)
+  SNR = np.sqrt(integral)
+  return SNR
+
+def find_max_distance(sim_name,m_BH_in_MSun,detector_name,threshold,initial_guess):
+  f_detector, ASD_detector = detector_dict[detector_name]
+  y_detector = np.log10(ASD_detector)
+  #
+  f, hc, ASD = get_hc_curve(sim_name,4,m_BH_in_MSun,initial_guess)
+  f_min = np.max((np.min(f),np.min(f_detector)))
+  f_max = np.min((np.max(f),np.max(f_detector)))
+  #print("f_min, f_max = ", f_max, f_min)
+  ASD = ASD[(f>=f_min)*(f<=f_max)]
+  f = f[(f>=f_min)*(f<=f_max)]
+  y_data = np.log10(ASD)
+  #print("len(y_data) = ",len(y_data))
+  #print("len(f) = ",len(f))
+  y_detector_interp = np.interp(f,f_detector,y_detector)
+  #print("len(y_data) = ",len(y_detector_interp))
+  max_diff = np.max(y_data - y_detector_interp)
+  f_max_diff = np.argmax(y_data - y_detector_interp)
+  log10_max_dis = np.log10(initial_guess) + max_diff - np.log10(threshold)
+  max_dis = 10**(log10_max_dis)
+  #print("max_dis in Mpc = ", max_dis)
+  #
+  # check that the redshift doesn't spoil things
+  f, hc, ASD = get_hc_curve(sim_name,4,m_BH_in_MSun,max_dis)
+  f_min = np.max((np.min(f),np.min(f_detector)))
+  f_max = np.min((np.max(f),np.max(f_detector)))
+  ASD = ASD[(f>=f_min)*(f<=f_max)]
+  f = f[(f>=f_min)*(f<=f_max)]
+  y_data = np.log10(ASD)
+  y_detector_interp = np.interp(f,f_detector,y_detector)
+  max_diff = np.max(y_data - y_detector_interp)
+  f_max_diff = np.argmax(y_data - y_detector_interp)
+  #print("log10(max_diff/threshold) = ", max_diff - np.log10(threshold))
+  log10_max_dis += max_diff - np.log10(threshold)
+  max_dis = 10**(log10_max_dis)
+  #print("max_dis in Mpc = ", max_dis)
+  #
+  f, hc, ASD = get_hc_curve(sim_name,4,m_BH_in_MSun,max_dis)
+  f_min = np.max((np.min(f),np.min(f_detector)))
+  f_max = np.min((np.max(f),np.max(f_detector)))
+  ASD = ASD[(f>=f_min)*(f<=f_max)]
+  f = f[(f>=f_min)*(f<=f_max)]
+  y_data = np.log10(ASD)
+  y_detector_interp = np.interp(f,f_detector,y_detector)
+  max_diff = np.max(y_data - y_detector_interp)
+  f_max_diff = np.argmax(y_data - y_detector_interp)
+  print("log10(max_diff/threshold) = ", max_diff - np.log10(threshold))
+  log10_max_dis += max_diff - np.log10(threshold)
+  max_dis = 10**(log10_max_dis)
+  print("max_dis in Mpc = ", max_dis)
+  #
+  ncount = 2
+  """while ((np.abs(max_diff - np.log10(threshold))>0.1) and (ncount < 50)):
+    log10_max_dis += (np.log10(threshold) - max_diff)
+    max_dis = 10**(log10_max_dis)
+    print("max_dis in Mpc = ", max_dis)
+    f, hc, ASD = get_hc_curve(sim_name,4,m_BH_in_MSun,max_dis)
+    f_min = np.max((np.min(f),np.min(f_detector)))
+    f_max = np.min((np.max(f),np.max(f_detector)))
+    ASD_data = ASD[(f>=f_min)*(f<=f_max)]
+    f = f[(f>=f_min)*(f<=f_max)]
+    y_data = np.log10(ASD)
+    y_detector_interp = np.interp(f,f_detector,y_detector)
+    max_diff = np.max(y_data - y_detector_interp)
+    f_max_diff = np.argmax(y_data - y_detector_interp)
+    print("log10(max_diff/threshold) = ", max_diff - np.log10(threshold))
+    ncount += 1"""
+  #
+  return (max_dis,f_max_diff)
+
+def plot_FFTs(sim_name,ASD_or_hc):
+  fig_h = 3.1
+  fig_w = 7.0
+  top_space = 0.1
+  bottom_space = 2.0
+  bottom_margin = 0.4 #bottom_space/fig_h
+  top_margin = top_space/fig_h
+  fig, ax = plt.subplots(gridspec_kw=dict(left=0.075,right=0.975,bottom=bottom_margin,top=1-top_margin,hspace=0.0,wspace=0.0))
+  label_font = 8
+  legend_font = 8
+  tick_label_font = 6
+  title_font = 6
+  fig.set_size_inches(fig_w,fig_h)
+  y_min = -25.0
+  y_max = -22.0
+  M = M_ADM_dict[sim_name]
+  m_BH_masses = np.array([10.0,10.0,100.0,1000.0,10000.0,10**5,10**6])
+  m_BH_masses_label = ["10","10","10^2","10^3","10^4","10^5","10^6"]
+  #Mpc_distances = np.array([0.1, 0.1*40000/150.0, 0.1*7000/150.0])
+  #Mpc_distances = np.array([1000.0, 58975.7, 142509.9, 142509.9,142509.9, 142509.9])
+  #Mpc_distances = np.array([5000.0, 105999, 142509.9, 142509.9,142509.9, 142509.9])
+  #Mpc_distances = np.array([5000.0, 142509.9, 142509.9, 142509.9,142509.9, 142509.9])
+  Mpc_distances = np.array([5000.0,167246.75, 167246.75, 167246.75, 167246.75, 167246.75,167246.75])
+  #detectors = ["CE","DECIGO","LISA"]
+  detectors = ["aLIGO","CE","DECIGO","DECIGO","LISA","LISA","LISA"]
+  colors = ['r','y','b','g','c','m','C1']
+  for iline in np.arange(len(m_BH_masses)):
+    m_BH_in_MSun = m_BH_masses[iline]
+    detector_name = detectors[iline]
+    #Mpc_dist = Mpc_distances[iline]
+    #
+    initial_guess = Mpc_distances[iline]
+    #max_dis,f_max_diff = find_max_distance(sim_name,m_BH_in_MSun,detector_name,100.0,initial_guess)
+    #max_z = get_z_from_luminosity_d(float(max_dis))
+    #print("max_z = ", max_z)
+    #Mpc_dist = max_dis
+    Mpc_dist = Mpc_distances[iline]
+    f_in_Hz, hc, ASD = get_hc_curve(sim_name,4,m_BH_in_MSun,Mpc_dist)
+    SNR = get_SNR(sim_name,m_BH_in_MSun,detector_name,Mpc_dist)
+    print("SNR = ", SNR)
+    #label_text="$\\vert \hat{\Psi}_4(f) \\vert/\omega^2$"
+    #label_text = "$m_0/M_{{\odot}}=${:s}, $d_L=d_{{\mathrm{{max}}}}={:.0f}\mathrm{{Mpc}}$".format(m_BH_masses_label[iline],max_dis)
+    z = float(get_z_from_luminosity_d(Mpc_dist))
+    if (iline==0):
+      label_text = "$m_0/M_{{\odot}}={:s}$,".format(m_BH_masses_label[iline]).ljust(22) + "$d_L={:.0f}\mathrm{{Gpc}}$,".format(Mpc_dist*0.001).ljust(25) + "$z={:.2f}$,".format(z).ljust(11) + "$\mathrm{{SNR}}(\mathrm{{ {:s} }})={:.0f}$".format(detector_name,SNR)
+    else:
+      if (Mpc_distances[iline] == Mpc_distances[iline-1]):
+        label_text = "$m_0/M_{{\odot}}={:s}$,".format(m_BH_masses_label[iline]).ljust(22) + "$z={:.1f}$,".format(z).ljust(11) + "$\mathrm{{SNR}}(\mathrm{{ {:s} }})={:.0f}$".format(detector_name,SNR)
+      else:
+        label_text = "$m_0/M_{{\odot}}={:s}$,".format(m_BH_masses_label[iline]).ljust(22) + "$d_L={:.0f}\mathrm{{Gpc}}$,".format(Mpc_dist*0.001).ljust(25) + "$z={:.1f}$,".format(z).ljust(11) + "$\mathrm{{SNR}}(\mathrm{{ {:s} }})={:.0f}$".format(detector_name,SNR)
+    print("label_text = ", label_text)
+    if (ASD_or_hc):
+      y_plot = ASD
+    else:
+      y_plot = hc
+    if use_log:
+      y_plot = np.log10(y_plot)
+    ax.plot(f_in_Hz,y_plot,"-",color=colors[iline],linewidth=1.5,label=label_text)
+    #
+    f, amp = get_IMR_PhenomD_binary_fft(m_BH_in_MSun,Mpc_dist)
+    if (ASD_or_hc):
+      y_plot = np.log10(amp*np.sqrt(f))
+    else:
+      y_plot = np.log10(amp*f)
+    # print("min(f) = ", np.min(f))
+    # print("max(f) = ", np.max(f))
+    # print("np.min(y_plot) = ", np.min(y_plot))
+    # print("np.max(y_plot) = ", np.max(y_plot))
+    ax.plot(f,y_plot,"--",color=colors[iline],linewidth=1.0,alpha=0.5,label="_")
+  # Add detector noise curves
+  sens_curve_line_width = 0.5
+  sens_curve_color = "0.0"
+  detector_names = ["aLIGO","CE","ET-D","DECIGO","LISA"]
+  detector_label_x = {
+    "aLIGO" : 100.0,
+    "CE" : 25.0,
+    "ET-D" : 400,
+    "LISA" : 0.0003,
+    "DECIGO" : 0.08,
+    "NANOGrav" : 5.0*10**(-8.0)
+  }
+  detector_linestyles = {
+    "aLIGO" : ":",
+    "ET-D" : (0, (3, 1, 1, 1, 1, 1)), #(0, (3, 5, 1, 5, 1, 5)),
+    "CE" : "-.",
+    "DECIGO" : "-",
+    "LISA" : "--",
+    "NANOGrav" : ":"
+  }
+  #detector_dict = get_detector_curves()
+  for idetector in range(0,len(detector_names)):
+    name = detector_names[idetector]
+    f_detector, ASD_detector = detector_dict[name]
+    if (ASD_or_hc):
+      y_plot = np.log10(ASD_detector)
+    else:
+      y_plot = np.log10(ASD_detector*np.sqrt(f_detector))
+    ax.plot(f_detector,y_plot,color='k',linewidth=sens_curve_line_width,label="_",linestyle=detector_linestyles[name])
+    add_detector_label_text(ax,name,f_detector,y_plot,detector_label_x[name],legend_font)
+  y_min = 10**(-25.0)
+  y_max = 10**(-16.5)
+  if use_log:
+    ax.set_ylim((np.log10(y_min),np.log10(y_max)))
+    if (ASD_or_hc):
+      ax.set_ylabel("$\\log_{10}(\sqrt{S_h(f)} = 2\;\\vert\\hat{h}(f)\\vert\;f^{1/2}\;[\mathrm{Hz}^{-1/2}])$",fontsize=label_font)
+      #ax2 = ax.twinx()
+      #ax2.set_ylim(ax.get_ylim())
+      #ax2.yaxis.set_ticklabels([])
+      #ax2.set_ylabel("$\\log_{10}(\sqrt{S_n(f)}\;[\mathrm{Hz}^{-1/2}])$",fontsize=label_font)
+    else:
+      ax.set_ylabel("$\\log_{10}(\langle h_c(f) \\rangle)$",fontsize=label_font)
+      #ax2 = ax.twinx()
+      #ax2.set_ylim(ax.get_ylim())
+      #ax2.yaxis.set_ticklabels([])
+      #ax2.set_ylabel("$\\log_{10}(h_n(f))$",fontsize=label_font)
+  else:
+    ax.set_ylim((y_min,y_max))
+    ax.set_yscale('log')
+    if (ASD_or_hc):
+      ax.set_ylabel("$\sqrt{S_h(f)} = 2\;\\vert\\hat{h}(f)\\vert\;f^{1/2}\;[\mathrm{Hz}^{-1/2}]$",fontsize=label_font)
+    else:
+      ax.set_ylabel("$\langle h_c(f) \\rangle$",fontsize=label_font)
+  #ax.set_xlabel("$f$ [kHz]",fontsize=label_font)
+  #ax.set_title("simulation 2, characteristic strain",fontsize=title_font)
+  ax.set_xlabel("$f$ [Hz]",fontsize=label_font,labelpad=0)
+  ax.set_xscale('log')
+  ax.grid(True, which='major',linewidth=0.3, color='0.5',alpha=0.25)
+  ax.grid(True, which='both',axis='x',linewidth=0.3, color='0.5',alpha=0.25)
+  #ax.set_xlim(right=1000.0)
+  ax.minorticks_on()
+  ## set y ticks
+  x_major = mticker.LogLocator(base = 10.0, numticks = 10)
+  ax.xaxis.set_major_locator(x_major)
+  x_minor = mticker.LogLocator(base = 10.0, subs = np.arange(1.0, 10.0) * 0.1, numticks = 50)
+  ax.xaxis.set_minor_locator(x_minor)
+  ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+  #
+  ax.tick_params(axis='y', which='both', labelsize=tick_label_font, direction='out',right=False)
+  ax.tick_params(axis='x', which='both', labelsize=tick_label_font, direction='out',right=False)
+  ax.legend(loc="lower center", fontsize=legend_font, fancybox=False, edgecolor='black',framealpha=1.0,ncol=2,handlelength=1.0,columnspacing=3.0,handletextpad=0.1,bbox_to_anchor=(0.5,-bottom_margin/(1.0 - bottom_margin)))
+  ax.set_xlim((2.0*10**(-5),1000.0))
+  #ax.set_ylim(bottom=-27.5)
+  #
+  if (ASD_or_hc):
+    save_path = sim_name + "_ASD_angle_averaged"
+  else:
+    save_path = sim_name + "_hc_angle_averaged"
+  if (use_mean_or_rms):
+    save_path = "Fig9_" + save_path + "_mean.pdf"
+  else:
+    save_path = save_path + ".pdf"
+  plt.savefig(save_path, dpi=1000)
+  print("saved " + save_path)
+  plt.close()
+
+for zi in [6.0,10.0,13.0,15.0]:
+  print("z = ",zi)
+  print("dist in Mpc = ",  get_lum_dist_from_z(zi))
+
+#plot_FFTs("Monoenergetic_N25_yc0.819_ID2",True)
+plot_FFTs("Monoenergetic_N25_yc0.819_ID2",False)

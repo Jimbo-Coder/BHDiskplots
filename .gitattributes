@@ -1,0 +1,4 @@
+# Preserve externally sourced numerical tables and legacy Fortran verbatim.
+detector_curves/*.txt -whitespace
+psi4_hlm_ref/* -whitespace
+wip_plots/detectability_ref/*.txt -whitespace

@@ -1,0 +1,32 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+.uv-cache/
+
+# Generated figures and movies
+figures/
+images/
+movies/
+frames/
+wip_plots/rho2d_movie.py
+wip_plots/rho2d_movie_panels.py
+
+# Derived GW products and working data
+gw_work/
+work/
+psi4_hlm_ref/rhphc
+*.dat.generated
+
+# Batch-job state
+/run_logs/
+*.log
+*.pid
+nohup.out*
+*.lock
+!uv.lock
+
+# Local machine configuration
+local_config.py
+.env
+.DS_Store
