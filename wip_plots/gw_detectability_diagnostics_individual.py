@@ -17,9 +17,9 @@ from helpers.gw_detectability import (
     prepared_rpsi4_modes,
 )
 from helpers.plot_common import parser, save_individual_fig, setup
-from helpers.reader import load_sims
+from gw import load_gw_sims
 from helpers.style import COMPACT_LEGEND_KWARGS, figure_size, format_paper_axes
-from wip_plots.gw_detectability_all import (
+from config import (
     DETECTABILITY_LOW_FREQUENCY_CYCLES,
     DETECTABILITY_MODES,
     DETECTABILITY_FIRST_WAVEZONE_PARFILE_INDEX,
@@ -116,11 +116,9 @@ def _report_ratio(label, x, ratio, reference_x, reference_y):
 def plot_validation(sim_name):
     radial_sims = {}
     for index in VALIDATION_RADIAL_INDICES:
-        loaded = load_sims(
-            ["strain"],
+        loaded = load_gw_sims(
             names=[sim_name],
             psi4_parfile_index=index,
-            psi4_mode=DETECTABILITY_MODES[0],
         )
         if loaded:
             radial_sims[index] = loaded[0]

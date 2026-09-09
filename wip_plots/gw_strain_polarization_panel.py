@@ -14,13 +14,14 @@ import numpy as np
 
 from config import GW_COMPARISON_PARFILE_INDICES
 from helpers.gw_units import (
+    extraction_radius_label,
     add_gw_time_secondary_axis,
     gw_time_xlabel,
     gw_time_values,
     normalize_strain,
 )
 from helpers.plot_common import parser, savefig, setup
-from helpers.reader import load_sims
+from gw import load_gw_sims
 from helpers.style import (
     figure_size,
     format_paper_axes,
@@ -75,7 +76,7 @@ def radius_tag(sims, parfile_index):
 
 def radius_label(sims, parfile_index):
     if sims:
-        return sims[0].gw_extraction_plot_label(parfile_index)
+        return extraction_radius_label(sims[0])
     return rf"$i_{{\mathrm{{par}}}}={int(parfile_index)}$"
 
 
@@ -195,11 +196,9 @@ def main(argv=None):
     setup(args)
     requested_names = [name for row in SIMULATION_GRID for name in row]
     for parfile_index in PSI4_PARFILE_INDICES:
-        sims = load_sims(
-            ["strain"],
+        sims = load_gw_sims(
             names=requested_names if args.sims is None else args.sims,
             psi4_parfile_index=parfile_index,
-            psi4_mode=PSI4_MODES[0],
         )
         for mode in PSI4_MODES:
             filename = OUTPUT_TEMPLATE.format(

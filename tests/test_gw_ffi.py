@@ -4,18 +4,24 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
+from dataclasses import replace
 
 import numpy as np
 
 from config import FORTRAN_GW_ROOT
-from gw_psi4 import (
+from gw import (
     N_PSI4_COLUMNS,
     Psi4File,
-    convert_to_strain_with_python,
-    convert_to_strain_with_rhphc,
+    generate_python_strain,
+    generate_fortran_strain,
     mode_order,
+    GWRun,
+    read_strain_cache,
+    read_difference,
+    subtract_waveforms,
 )
-from helpers.gw_ffi import (
+from gw import (
     _fixed_frequency_integrate,
     _four_point_interpolate,
     _padded_fft_size,
@@ -24,6 +30,88 @@ from helpers.gw_ffi import (
 
 
 class PythonFFITests(unittest.TestCase):
+    def test_generate_then_read_case_and_difference_without_touching_sources(self):
+        import generate_gw
+        from config import all_sim_configs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs, sources = {}, {}
+            for name, label, factor in (("A1", "5", 1.), ("ML", "4", .1)):
+                directory = root / name
+                directory.mkdir()
+                source = directory / f"Psi4_rad.mon.{label}"
+                rows = self.synthetic_psi4().data.copy()
+                rows[:, 1:-4] *= factor
+                np.savetxt(source, rows)
+                sources[source] = source.read_bytes()
+                cfg = replace(all_sim_configs([name])[0], data_roots=(directory,),
+                              gw_omega_orbital=.1, gw_madm=1.)
+                runs[name] = GWRun(cfg)
+            with (
+                mock.patch("gw.GW_WORK_ROOT", root / "cache"),
+                mock.patch.object(generate_gw, "GW_REGENERATE_EXISTING", True),
+                mock.patch.object(generate_gw, "GW_STRAIN_BACKEND", "python"),
+            ):
+                for run in runs.values():
+                    self.assertEqual(generate_gw.generate_simulation(run), 1)
+                self.assertEqual(generate_gw.generate_difference_radius(runs, 4), 1)
+                result = read_difference(runs["A1"].at_radius(4), runs["ML"].at_radius(4))
+                self.assertGreater(result.time.size, 4)
+                self.assertTrue(np.isfinite(result.rhphc).all())
+                with (
+                    mock.patch.object(generate_gw, "GW_REGENERATE_EXISTING", False),
+                    mock.patch.object(generate_gw, "generate_strain", side_effect=AssertionError("must reuse")),
+                ):
+                    self.assertEqual(generate_gw.generate_simulation(runs["A1"]), 1)
+            for source, original in sources.items():
+                self.assertEqual(source.read_bytes(), original)
+
+    def test_radius_switch_reuses_files_and_selects_correct_cached_result(self):
+        from config import all_sim_configs
+
+        source = self.synthetic_psi4()
+        files = {"5": replace(source, label="5"), "9": replace(source, label="9")}
+        inner, outer = mock.Mock(), mock.Mock()
+        with (
+            mock.patch("gw.load_psi4", return_value=(files, {4: 120., 8: 170.})) as load,
+            mock.patch("gw.read_strain_cache", side_effect=[inner, outer]) as read,
+            mock.patch("gw.generate_strain", side_effect=AssertionError("plotting must not integrate")),
+        ):
+            run = GWRun(all_sim_configs(["A1"])[0])
+            first = run.at_radius(4)
+            second = run.at_radius(8)
+            self.assertIs(first.strain_result, inner)
+            self.assertIs(second.strain_result, outer)
+            self.assertIs(run.at_radius(4), first)
+            self.assertEqual(first.psi4_radius, 120.)
+            self.assertEqual(first.parfile_index, 4)
+            self.assertEqual(second.parfile_index, 8)
+            self.assertEqual(load.call_count, 1)
+            self.assertEqual(read.call_count, 2)
+        with (
+            mock.patch("gw.load_psi4", return_value=({"8": replace(source, label="8")}, {7: 170.})),
+            mock.patch("gw.read_strain_cache", return_value=outer),
+        ):
+            ml = GWRun(all_sim_configs(["ML"])[0]).at_radius(8)
+        self.assertEqual(second.psi4.label, "9")
+        self.assertEqual(ml.psi4.label, "8")
+
+    def test_missing_cache_does_not_create_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / "missing"
+            with self.assertRaises(FileNotFoundError):
+                read_strain_cache(workdir, Path("source"))
+            self.assertFalse(workdir.exists())
+
+    def test_complex_difference_only_uses_shared_time_interval(self):
+        time = np.arange(6.)
+        result = subtract_waveforms(time, (2 + 3j) * time,
+                                    [1.5, 3.5], [1.5 + 1.5j, 3.5 + 3.5j])
+        np.testing.assert_array_equal(result[0], [2., 3.])
+        np.testing.assert_allclose(result[1], [2 + 4j, 3 + 6j])
+        self.assertIsNone(subtract_waveforms([0, 1], [0, 1], [3, 4], [3, 4]))
+
     @staticmethod
     def synthetic_psi4(sample_count=33):
         dt = 0.125
@@ -110,12 +198,11 @@ class PythonFFITests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp)
-            result = convert_to_strain_with_python(
+            result = generate_python_strain(
                 psi4,
                 workdir,
                 omega_orbital=0.1,
                 madm=1.0,
-                reuse_existing=False,
             )
             for filename in (
                 "rhphc.dat",
@@ -136,14 +223,7 @@ class PythonFFITests(unittest.TestCase):
             np.testing.assert_allclose(uniform_modes[(2, 2)], result.rpsi4(2, 2))
             self.assertEqual(uniform_modes[(2, 1)].shape, result.time.shape)
 
-            cached = convert_to_strain_with_python(
-                psi4,
-                workdir,
-                omega_orbital=0.1,
-                madm=1.0,
-                reuse_existing=True,
-                generate_if_missing=False,
-            )
+            cached = read_strain_cache(workdir, psi4.path)
             np.testing.assert_allclose(cached.rhphc, result.rhphc)
 
     @unittest.skipUnless(shutil.which("gfortran"), "gfortran is not installed")
@@ -167,21 +247,19 @@ class PythonFFITests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            python_result = convert_to_strain_with_python(
+            python_result = generate_python_strain(
                 psi4,
                 root / "python",
                 omega_orbital=0.1,
                 madm=1.0,
-                reuse_existing=False,
             )
-            fortran_result = convert_to_strain_with_rhphc(
+            fortran_result = generate_fortran_strain(
                 psi4,
                 root / "fortran",
                 omega_orbital=0.1,
                 madm=1.0,
                 psi4_hlm_dir=root,
                 executable=executable.name,
-                reuse_existing=False,
             )
             for name in ("rhphc", "rhphcdot", "omega22", "ejv_gw"):
                 rtol = 5.0e-11 if name == "ejv_gw" else 2.0e-12

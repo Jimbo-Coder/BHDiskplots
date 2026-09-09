@@ -51,7 +51,7 @@ def _normalization_labels():
 def _normalization(sim, mdot):
     labels = _normalization_labels()
     if M0DOT_NORMALIZATION == "disk_rest_mass":
-        denominator = float(sim.config.disk_rest_mass)
+        denominator = float(sim.config.disk_rest_mass_code)
     else:
         denominator = float(mdot[0])
     if not np.isfinite(denominator) or denominator <= 0.0:

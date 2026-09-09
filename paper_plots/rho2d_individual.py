@@ -133,7 +133,7 @@ def rho2d_coordinate_divisor(sim) -> float:
     if mode == "none":
         return 1.0
     if mode == "disk_rest_mass":
-        divisor = float(getattr(sim.config, "disk_rest_mass", np.nan))
+        divisor = float(sim.config.disk_rest_mass_code)
     elif mode == "adm_mass":
         divisor = float(getattr(sim.config, "gw_madm", np.nan))
     else:

@@ -12,16 +12,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import PLOTS_DIR
+from wip_plots.gw_waveforms import individual_main
 
 # Critical knobs.
 ALL_SIM_ALIASES = {"all": ["A1", "A2", "A3", "B1", "B2", "B3"]}
 
 INDIVIDUAL_PLOT_MODULES = [
     ("paper_plots", "rho2d_individual"),
-    ("wip_plots", "gw_psi4_radii_individual"),
-    ("wip_plots", "gw_strain_radii_individual"),
-    ("wip_plots", "gw_psi4_modes_individual"),
-    ("wip_plots", "gw_strain_modes_individual"),
 ]
 
 INDIVIDUAL_EXTRA_MODULES = [
@@ -70,25 +67,22 @@ def main(argv=None):
     sims = expand_sim_args(args.sims)
     outdir = args.outdir if args.outdir is not None else PLOTS_DIR
     for sim in sims:
+        module_argv = ["--sims", sim, "--outdir", str(outdir)]
+        if args.no_save:
+            module_argv.append("--no-save")
+        if args.show:
+            module_argv.append("--show")
         for package_name, module_name in INDIVIDUAL_PLOT_MODULES:
             print(f"running {module_name} for {sim}")
             module = import_module(f"{package_name}.{module_name}")
-            module_argv = ["--sims", sim, "--outdir", str(outdir)]
-            if args.no_save:
-                module_argv.append("--no-save")
-            if args.show:
-                module_argv.append("--show")
             module.main(module_argv)
+
+        individual_main(module_argv)
 
         if args.extra:
             for package_name, module_name in INDIVIDUAL_EXTRA_MODULES:
                 print(f"running {module_name} for {sim}")
                 module = import_module(f"{package_name}.{module_name}")
-                module_argv = ["--sims", sim, "--outdir", str(outdir)]
-                if args.no_save:
-                    module_argv.append("--no-save")
-                if args.show:
-                    module_argv.append("--show")
                 module.main(module_argv)
 
 

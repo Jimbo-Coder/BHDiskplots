@@ -20,9 +20,9 @@ from config import (
     REPOSITORY_ROOT,
     all_sim_configs,
 )
-from plot_settings import GW_TIME_SCALE
-from gw_psi4 import N_PSI4_COLUMNS, Psi4File, convert_to_strain_with_rhphc, read_psi4_file
-from helpers.reader_gw import (
+from config import GW_TIME_SCALE
+from gw import N_PSI4_COLUMNS, Psi4File, read_strain_cache, read_psi4_file
+from gw import (
     filter_psi4_by_expected_radius,
     subtract_psi4_on_retarded_time,
 )
@@ -57,6 +57,36 @@ def carpet_2d_iteration(iteration, time_value, ref_levels=(0,)):
 
 
 class RestartAndCacheTests(unittest.TestCase):
+    def test_disk_mass_normalizations_use_code_mass_not_ratio(self):
+        from dataclasses import replace
+        from helpers.gw_units import (
+            normalize_rpsi4_by_disk_mass,
+            normalize_strain_by_disk_mass,
+        )
+        from paper_plots.m0dot_all import _normalization
+
+        config = all_sim_configs(["A3"])[0]
+        self.assertAlmostEqual(config.disk_to_bh_mass_ratio, 0.602)
+        self.assertAlmostEqual(config.disk_rest_mass_code, 0.0301)
+        sim = SimpleNamespace(config=config)
+        np.testing.assert_allclose(
+            normalize_strain_by_disk_mass(np.array([0.0301]), sim), [1.0]
+        )
+        np.testing.assert_allclose(
+            normalize_rpsi4_by_disk_mass(np.array([1.0 / 0.0301]), sim), [1.0]
+        )
+        denominator, _ = _normalization(sim, np.array([2.0]))
+        self.assertAlmostEqual(denominator, 0.0301)
+        from paper_plots import rho2d_individual
+        with mock.patch.object(rho2d_individual, "RHO2D_COORDINATE_NORMALIZATION", "disk_rest_mass"):
+            self.assertAlmostEqual(rho2d_individual.rho2d_coordinate_divisor(sim), 0.0301)
+        self.assertAlmostEqual(
+            replace(config, mlittle=0.1).disk_rest_mass_code, 0.0602
+        )
+        np.testing.assert_allclose(
+            normalize_strain_by_disk_mass(np.array([0.0301]), sim, False), [0.0301]
+        )
+
     def test_savefig_creates_nested_output_directory(self):
         from helpers.plot_common import savefig
 
@@ -111,17 +141,15 @@ class RestartAndCacheTests(unittest.TestCase):
             self.assertTrue(unrelated.exists())
 
     def test_nonpaper_outputs_are_routed_out_of_figure_root(self):
-        from helpers.gw_difference import GW_DIFFERENCE_OUTPUT_SUBDIR
+        from config import GW_DIFFERENCE_OUTPUT_SUBDIR
         from wip_plots import (
             disp_all,
             gw_detectability_all,
-            gw_psi4_all,
-            gw_strain_all,
+            gw_waveforms,
         )
 
         self.assertTrue(disp_all.OUTPUT_FILENAME.startswith("wip/"))
-        self.assertTrue(gw_psi4_all.OUTPUT_TEMPLATE.startswith("gw/"))
-        self.assertTrue(gw_strain_all.OUTPUT_TEMPLATE.startswith("gw/"))
+        self.assertTrue(all(path.startswith("gw/") for path in gw_waveforms.OUTPUTS.values()))
         self.assertTrue(
             gw_detectability_all.OUTPUT_FILENAME_CHARACTERISTIC_STRAIN.startswith("gw/")
         )
@@ -155,8 +183,7 @@ class RestartAndCacheTests(unittest.TestCase):
 
     def test_combined_time_domain_gw_plots_generate_both_radii(self):
         module_names = (
-            "wip_plots.gw_psi4_all",
-            "wip_plots.gw_strain_all",
+            "wip_plots.gw_waveforms",
             "wip_plots.gw_strain_polarization_panel",
         )
         for module_name in module_names:
@@ -164,11 +191,16 @@ class RestartAndCacheTests(unittest.TestCase):
                 module = import_module(module_name)
                 with (
                     mock.patch.object(module, "setup"),
-                    mock.patch.object(module, "load_sims", return_value=[]) as load,
+                    mock.patch.object(module, "load_gw_sims", return_value=[
+                        SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.0)
+                    ]) as load,
                     mock.patch.object(module, "plot", return_value=mock.Mock()),
                     mock.patch.object(module, "savefig") as save,
                 ):
-                    module.main([])
+                    if module_name.endswith("gw_waveforms"):
+                        module.main([], kinds=["strain"])
+                    else:
+                        module.main([])
                 self.assertEqual(
                     [call.kwargs["psi4_parfile_index"] for call in load.call_args_list],
                     list(GW_COMPARISON_PARFILE_INDICES),
@@ -442,14 +474,7 @@ class RestartAndCacheTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(FileNotFoundError, "Run generate_gw.py"):
-                convert_to_strain_with_rhphc(
-                    psi4,
-                    workdir=Path(tmp),
-                    omega_orbital=0.1,
-                    madm=1.0,
-                    reuse_existing=True,
-                    generate_if_missing=False,
-                )
+                read_strain_cache(Path(tmp), psi4.path)
 
     def test_massless_restart_is_ordered_oldest_to_newest(self):
         massless = all_sim_configs(["ml"])[0]

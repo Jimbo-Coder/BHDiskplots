@@ -4,7 +4,8 @@ from __future__ import annotations
 import matplotlib.ticker as mticker
 import numpy as np
 
-from plot_settings import GW_NORMALIZE_BY_M, GW_TIME_SCALE
+from config import GW_NORMALIZE_BY_M, GW_TIME_SCALE
+from gw import loaded_areal_radius
 from helpers.time_units import ORBITAL_PERIOD_LATEX, code_time_to_ms, ms_to_code_time
 
 SECONDARY_AXIS_YTICK_PAD = 9
@@ -33,13 +34,9 @@ def gw_adm_mass(sim) -> float | None:
     return mass
 
 
-def gw_mass(sim) -> float | None:
-    """Compatibility name for the mass used to normalize plotted GWs."""
-    return gw_bh_mass(sim)
-
-
-def disk_rest_mass(sim) -> float:
-    mass = float(getattr(sim.config, "disk_rest_mass", np.nan))
+def disk_rest_mass_code(sim) -> float:
+    """Return the initial disk mass in the same code units as r*h and r*Psi4."""
+    mass = float(sim.config.disk_rest_mass_code)
     if not np.isfinite(mass) or mass <= 0.0:
         raise ValueError(f"{sim.config.name}: invalid configured disk rest mass {mass!r}")
     return mass
@@ -47,7 +44,7 @@ def disk_rest_mass(sim) -> float:
 
 def normalize_rpsi4(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
     values = np.asarray(values)
-    mass = gw_mass(sim)
+    mass = gw_bh_mass(sim)
     if normalize_by_m and mass is not None:
         return mass * values
     return values
@@ -56,13 +53,13 @@ def normalize_rpsi4(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
 def normalize_rpsi4_by_disk_mass(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
     values = np.asarray(values)
     if normalize_by_m:
-        return disk_rest_mass(sim) * values
+        return disk_rest_mass_code(sim) * values
     return values
 
 
 def normalize_strain(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
     values = np.asarray(values)
-    mass = gw_mass(sim)
+    mass = gw_bh_mass(sim)
     if normalize_by_m and mass is not None:
         return values / mass
     return values
@@ -71,7 +68,7 @@ def normalize_strain(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
 def normalize_strain_by_disk_mass(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
     values = np.asarray(values)
     if normalize_by_m:
-        return values / disk_rest_mass(sim)
+        return values / disk_rest_mass_code(sim)
     return values
 
 
@@ -185,3 +182,45 @@ def strain_multimode_ylabel(component: str, normalize_by_m: bool = GW_NORMALIZE_
 def skyavg_strain_ylabel(normalize_by_m: bool = GW_NORMALIZE_BY_M) -> str:
     suffix = r"/M_{\mathrm{BH}}" if normalize_by_m else ""
     return rf"$\langle |r_A h|^2\rangle_\Omega^{{1/2}}{suffix}$"
+
+
+def extraction_radius_label(sim):
+    radius = sim.psi4_radius
+    if radius is None:
+        radius = loaded_areal_radius(sim)
+    if radius is None:
+        return rf"$i_{{par}}={sim.parfile_index}$"
+    if radius == 0:
+        text = "0"
+    else:
+        exponent = int(np.floor(np.log10(abs(radius))))
+        mantissa = radius / 10.0**exponent
+        if exponent != 0 and np.isclose(mantissa, 1.0):
+            text = rf"10^{{{exponent}}}"
+        elif exponent != 0 and (abs(radius) >= 1.e4 or abs(radius) < 1.e-2):
+            text = rf"{mantissa:.3g}\times10^{{{exponent}}}"
+        else:
+            text = f"{radius:g}"
+    return rf"$r={text}$"
+
+
+def loaded_radius_label(sim, parfile_index):
+    radius = loaded_areal_radius(sim)
+    if radius is None:
+        return extraction_radius_label(sim)
+    return rf"$r_A\simeq {radius:.3g}$"
+
+
+def loaded_radius_tag(sim, parfile_index):
+    radius = getattr(sim, "psi4_radius", None)
+    if radius is not None:
+        radius = float(radius)
+    if radius is None or not np.isfinite(radius):
+        radius = loaded_areal_radius(sim)
+    if radius is None:
+        return f"i{int(parfile_index) + 1}"
+    if np.isclose(radius, round(radius)):
+        radius_text = str(int(round(radius)))
+    else:
+        radius_text = f"{radius:g}".replace(".", "p")
+    return f"r{radius_text}"

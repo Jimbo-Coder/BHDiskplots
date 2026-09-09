@@ -11,12 +11,12 @@ WIP_PLOTS = {
     "horizon": "j_rs_all",
     "irreducible_mass": "mirr_all",
     "radii": "rs_minmax_all",
-    "psi4": "gw_psi4_all",
-    "psi4_minus_ml": "gw_psi4_minus_massless_all",
-    "strain": "gw_strain_all",
+    "psi4": "gw_waveforms",
+    "psi4_minus_ml": "gw_waveforms",
+    "strain": "gw_waveforms",
     "strain_panel": "gw_strain_polarization_panel",
-    "strain_minus_ml": "gw_strain_minus_massless_all",
-    "strain_from_psi4_minus_ml": "gw_strain_from_psi4_minus_massless_all",
+    "strain_minus_ml": "gw_waveforms",
+    "strain_from_psi4_minus_ml": "gw_waveforms",
     "detectability": "gw_detectability_all",
 }
 
@@ -36,11 +36,18 @@ def main(argv=None):
             f"choose from {', '.join(WIP_PLOTS)}"
         )
 
-    for name in args.plots or list(WIP_PLOTS):
+    requested = args.plots or list(WIP_PLOTS)
+    waveforms_done = False
+    for name in requested:
         module_name = WIP_PLOTS[name]
         print(f"running WIP plot: {name}")
         module = import_module(f"wip_plots.{module_name}")
-        module.main([])
+        if module_name == "gw_waveforms":
+            if not waveforms_done:
+                module.main([], kinds=[key for key in requested if WIP_PLOTS[key] == module_name])
+                waveforms_done = True
+        else:
+            module.main([])
 
 
 if __name__ == "__main__":

@@ -3,6 +3,10 @@ import unittest
 import numpy as np
 
 from helpers.gw_detectability import (
+    DimensionlessSpectrum,
+    DetectorCurve,
+    _bin_spectral_power,
+    _snr_from_binned_power,
     FlatLambdaCDM,
     characteristic_strain,
     direct_psi4_spectrum,
@@ -13,6 +17,17 @@ from helpers.gw_detectability import (
 
 
 class DirectPsi4SpectrumTests(unittest.TestCase):
+    def test_detector_snr_distance_scaling_and_zero_signal(self):
+        frequency = np.linspace(0.001, 0.1, 100)
+        spectrum = DimensionlessSpectrum(frequency, np.ones(100), "mean")
+        binned = _bin_spectral_power(spectrum, 128)
+        curves = {"ligo": DetectorCurve(np.array([5., 2500.]), np.array([1e-23, 1e-23]))}
+        snr = _snr_from_binned_power(binned, "ligo", 10., 100., curves)
+        self.assertGreater(snr, 0)
+        self.assertAlmostEqual(_snr_from_binned_power(binned, "ligo", 10., 200., curves), snr / 2)
+        empty = _bin_spectral_power(DimensionlessSpectrum(frequency, np.zeros(100), "mean"), 128)
+        self.assertEqual(_snr_from_binned_power(empty, "ligo", 10., 100., curves), 0.)
+
     def test_single_mode_recovers_double_integrated_periodic_signal(self):
         samples = 2048
         cycles = 16

@@ -7,6 +7,8 @@ waveform.  The total ADM mass is intentionally absent from these conversions.
 """
 from __future__ import annotations
 
+import config
+
 from dataclasses import dataclass
 from functools import cached_property
 from math import factorial
@@ -498,3 +500,194 @@ def spin_weighted_spherical_harmonic(
         * wigner_small_d(int(ell), int(emm), -int(spin_weight), float(theta))
         * phase
     )
+
+
+# Detector response and SNR.
+DETECTOR_CURVE_DIR = config.REPOSITORY_ROOT / "detector_curves"
+
+DETECTOR_BOUNDS = {
+    "ligo": (5.0, 2.5e3),
+    "ce": (5.0, 5.0e3),
+    "decigo": (1.0e-2, 10.0),
+    "lisa": (1.0e-4, 1.0),
+}
+
+
+@dataclass(frozen=True)
+class DetectorCurve:
+    frequency: np.ndarray
+    asd: np.ndarray
+
+
+@dataclass(frozen=True)
+class BinnedSpectralPower:
+    frequency: np.ndarray
+    power_dfrequency: np.ndarray
+
+
+def active_detectors():
+    return tuple(name for name in config.DETECTABILITY_ACTIVE_DETECTORS if name in DETECTOR_BOUNDS)
+
+
+def _read_two_column_curve(filename: str, quantity: str) -> DetectorCurve:
+    path = DETECTOR_CURVE_DIR / filename
+    raw = np.loadtxt(path, comments="#")
+    if raw.ndim == 1:
+        raw = raw.reshape(1, -1)
+    frequency = np.asarray(raw[:, 0], dtype=float)
+    values = np.asarray(raw[:, 1], dtype=float)
+    keep = np.isfinite(frequency) & np.isfinite(values) & (frequency > 0.0) & (values > 0.0)
+    frequency = frequency[keep]
+    values = values[keep]
+    if frequency.size < 2:
+        raise ValueError(f"Detector curve {path} has fewer than two positive samples")
+    order = np.argsort(frequency)
+    asd = np.sqrt(values) if quantity == "psd" else values
+    return DetectorCurve(frequency[order], asd[order])
+
+
+def _decigo_instrument_asd(frequency) -> np.ndarray:
+    """Single effective L-shaped DECIGO interferometer, Yagi-Seto Eq. (5)."""
+    frequency = np.maximum(np.asarray(frequency, dtype=float), 1.0e-12)
+    pivot = 7.36
+    psd = (
+        6.53e-49 * (1.0 + (frequency / pivot) ** 2)
+        + 4.45e-51 * frequency ** -4 / (1.0 + (frequency / pivot) ** 2)
+        + 4.94e-52 * frequency ** -4
+    )
+    return np.sqrt(psd)
+
+
+def load_detector_curves():
+    return {
+        "ligo": _read_two_column_curve("AplusDesign.txt", "asd"),
+        "ce": _read_two_column_curve("CE2_40km_strain.txt", "asd"),
+        # This file is the LISA SciRDv1 equivalent sky-and-polarization-averaged PSD.
+        "lisa": _read_two_column_curve("LISA_Alloc_Sh.txt", "psd"),
+    }
+
+
+def _log_interpolate_curve(curve: DetectorCurve, frequency) -> np.ndarray:
+    frequency = np.asarray(frequency, dtype=float)
+    clipped = np.clip(frequency, curve.frequency[0], curve.frequency[-1])
+    return np.power(
+        10.0,
+        np.interp(np.log10(clipped), np.log10(curve.frequency), np.log10(curve.asd)),
+    )
+
+
+def effective_detector_asd(detector: str, frequency, curves) -> np.ndarray:
+    """Noise ASD in the same Wessel convention as polarization-averaged h_res.
+
+    A+, CE, and DECIGO start as optimal single-interferometer curves. The
+    factor sqrt(5) performs the standard right-angle sky/polarization response
+    average. Wessel et al. then multiply all sky-and-polarization-averaged
+    curves by sqrt(2), because h_res already contains the 1/sqrt(2)
+    polarization average. The LISA file already includes the first average.
+    """
+    if detector == "decigo":
+        return np.sqrt(10.0) * _decigo_instrument_asd(frequency)
+    asd = _log_interpolate_curve(curves[detector], frequency)
+    if detector in {"ligo", "ce"}:
+        return np.sqrt(10.0) * asd
+    if detector == "lisa":
+        return np.sqrt(2.0) * asd
+    raise ValueError(f"Unknown detector {detector!r}")
+
+
+def _bin_spectral_power(spectrum: DimensionlessSpectrum, bins: int) -> BinnedSpectralPower:
+    frequency = np.asarray(spectrum.frequency, dtype=float)
+    power = np.square(np.abs(np.asarray(spectrum.strain_ft, dtype=complex)))
+    keep = np.isfinite(frequency) & np.isfinite(power) & (frequency > 0.0) & (power >= 0.0)
+    frequency = frequency[keep]
+    power = power[keep]
+    if frequency.size < 2:
+        return BinnedSpectralPower(np.array([]), np.array([]))
+    segment_frequency = np.sqrt(frequency[:-1] * frequency[1:])
+    segment_power = 0.5 * (power[:-1] + power[1:]) * np.diff(frequency)
+    keep = np.isfinite(segment_power) & (segment_power > 0.0)
+    segment_frequency = segment_frequency[keep]
+    segment_power = segment_power[keep]
+    if not segment_frequency.size:
+        return BinnedSpectralPower(np.array([]), np.array([]))
+    edges = np.logspace(
+        np.log10(segment_frequency[0]),
+        np.log10(segment_frequency[-1]) + 8.0 * np.finfo(float).eps,
+        max(64, int(bins)) + 1,
+    )
+    indices = np.clip(np.searchsorted(edges, segment_frequency, side="right") - 1, 0, edges.size - 2)
+    power_binned = np.bincount(indices, weights=segment_power, minlength=edges.size - 1)
+    centers = np.sqrt(edges[:-1] * edges[1:])
+    nonzero = power_binned > 0.0
+    return BinnedSpectralPower(centers[nonzero], power_binned[nonzero])
+
+
+def _snr_from_binned_power(binned, detector, redshifted_mass, distance, curves):
+    if binned.frequency.size == 0 or redshifted_mass <= 0.0 or distance <= 0.0:
+        return 0.0
+    time_scale = redshifted_mass * SECONDS_PER_M_SUN
+    frequency = binned.frequency / time_scale
+    lower, upper = DETECTOR_BOUNDS[detector]
+    keep = (frequency >= lower) & (frequency <= upper)
+    if np.count_nonzero(keep) < 2:
+        return 0.0
+    asd = effective_detector_asd(detector, frequency[keep], curves)
+    amplitude = redshifted_mass * METERS_PER_M_SUN / (distance * METERS_PER_MPC)
+    snr_squared = (
+        4.0
+        * amplitude**2
+        * time_scale
+        * np.sum(binned.power_dfrequency[keep] / np.square(asd))
+    )
+    return float(np.sqrt(max(snr_squared, 0.0)))
+
+
+def _horizon_curves(spectra, curves, cosmology):
+    masses = np.logspace(
+        np.log10(config.DETECTABILITY_HORIZON_MASS_RANGE_MSUN[0]),
+        np.log10(config.DETECTABILITY_HORIZON_MASS_RANGE_MSUN[1]),
+        int(config.DETECTABILITY_HORIZON_MASS_SAMPLES),
+    )
+    samples = max(24, int(config.DETECTABILITY_HORIZON_REDSHIFT_SAMPLES))
+    redshift = np.unique(
+        np.concatenate(
+            (
+                np.geomspace(1.0e-6, 0.1, samples),
+                np.linspace(0.1, config.DETECTABILITY_HORIZON_REDSHIFT_MAX, samples),
+            )
+        )
+    )
+    distance = cosmology.luminosity_distance_mpc(redshift)
+    result = {detector: {} for detector in active_detectors()}
+    for sim_name, spectrum in spectra.items():
+        binned = _bin_spectral_power(spectrum, config.DETECTABILITY_HORIZON_SPECTRAL_BINS)
+        for detector in active_detectors():
+            horizon = np.full_like(masses, np.nan)
+            for mass_index, source_mass in enumerate(masses):
+                snr = np.array(
+                    [
+                        _snr_from_binned_power(
+                            binned,
+                            detector,
+                            source_mass * (1.0 + z),
+                            d,
+                            curves,
+                        )
+                        for z, d in zip(redshift, distance)
+                    ]
+                )
+                detected = np.flatnonzero(snr >= config.DETECTABILITY_SNR_THRESHOLD)
+                if detected.size == 0:
+                    continue
+                last = int(detected[-1])
+                z_horizon = redshift[last]
+                if last + 1 < redshift.size and snr[last + 1] < config.DETECTABILITY_SNR_THRESHOLD:
+                    y0 = np.log(max(snr[last], np.finfo(float).tiny))
+                    y1 = np.log(max(snr[last + 1], np.finfo(float).tiny))
+                    target = np.log(config.DETECTABILITY_SNR_THRESHOLD)
+                    if not np.isclose(y0, y1):
+                        fraction = np.clip((target - y0) / (y1 - y0), 0.0, 1.0)
+                        z_horizon += fraction * (redshift[last + 1] - redshift[last])
+                horizon[mass_index] = cosmology.luminosity_distance_mpc(z_horizon)
+            result[detector][sim_name] = horizon
+    return masses, result

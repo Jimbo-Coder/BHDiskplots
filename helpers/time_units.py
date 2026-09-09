@@ -4,7 +4,7 @@ from __future__ import annotations
 import matplotlib.ticker as mticker
 import numpy as np
 
-from plot_settings import TIME_CODE_UNIT_MASS_MSUN, TIME_NORMALIZE_BY_PC
+from config import TIME_CODE_UNIT_MASS_MSUN, TIME_NORMALIZE_BY_PC
 
 MILLISECONDS_PER_SOLAR_MASS = 4.925490947e-3
 SECONDARY_AXIS_YTICK_PAD = 9

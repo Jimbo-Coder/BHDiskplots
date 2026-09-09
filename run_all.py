@@ -7,14 +7,10 @@ import subprocess
 import sys
 
 
-# Workflow knobs.
-RUN_GW_CACHE = False
-REBUILD_EXISTING_GW_CACHE = True
-RUN_PAPER_PLOTS = True
-RUN_WIP_PLOTS = True
-RUN_INDIVIDUAL_PLOTS = True
-RUN_INDIVIDUAL_EXTRAS = True
-INDIVIDUAL_CASES = ("all",)
+from config import (
+    RUN_GW_CACHE, RUN_PAPER_PLOTS, RUN_WIP_PLOTS,
+    RUN_INDIVIDUAL_PLOTS, RUN_INDIVIDUAL_EXTRAS, INDIVIDUAL_CASES,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -32,7 +28,6 @@ def main(*, run_gw_cache=None):
         import generate_gw
 
         print("\n=== GW cache ===", flush=True)
-        generate_gw.REGENERATE_EXISTING = REBUILD_EXISTING_GW_CACHE
         generate_gw.main()
 
     if RUN_PAPER_PLOTS:

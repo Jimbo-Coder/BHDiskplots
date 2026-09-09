@@ -1,6 +1,6 @@
 # GW Detectability Working Log
 
-Last updated: 2026-09-02
+Last updated: 2026-09-09
 Status: direct detectability is implemented and unit-tested. The shared NumPy
 waveform preprocessing backend is parity-tested against the repaired Fortran
 reference locally and on Anvil. The full Anvil cache and combined
@@ -8,6 +8,48 @@ detectability figures were regenerated successfully on 2026-09-02.
 
 This file records the current objective, open decisions, and next work. Move
 settled conclusions into `KNOWLEDGE.md`.
+
+## Code Cleanup
+
+- Second pass: `GWRun.at_radius(index)` returns a stable radius-specific
+  `Waveform`, not a mutable current selection. All modes remain in that result.
+  Removed unused per-simulation mode/radius-list settings and reader accessors.
+- Cache reads and generation are separate functions; only `generate_gw.py`
+  chooses rebuild versus reuse. The numerical FFI functions are unchanged.
+  Radius-to-LaTeX formatting lives with display helpers. Waveform plots select
+  explicit named series functions rather than inferring behavior from names.
+- Second-pass local verification: 42 tests, including generation/readback of
+  case and difference caches without source edits. The same 24 synthetic
+  figures match in all 344 recorded data/layout arrays and label text.
+- Second pass synced after source checksum checks: Anvil also passed all 42
+  tests and rendered 24 real-data figures; A1's direct spectrum again had 6316
+  bins. No production figure regeneration, commit, or push was performed.
+
+- `gw.py` now owns extraction reading, restart merging, the unchanged FFI
+  equations, and cache access. Scalar/2D readers no longer own GW conversion.
+- Nine ordinary waveform plotting scripts are consolidated in
+  `wip_plots/gw_waveforms.py`. Combined jobs load each radius once for all modes
+  and plot types; individual jobs reuse loaded extraction files and strain.
+- Shared run, unit, and detectability settings are in `config.py`. Detector
+  response and SNR calculations moved out of the plot into
+  `helpers/gw_detectability.py`; no response/window/cutoff convention changed.
+- Local verification: 41 tests; 24 old/new synthetic figures agree in plotted
+  data, axis bounds, panel positions, and labels. Detector curves, binned power,
+  and sampled horizon curves match exactly. Zero-power binning now returns an
+  empty spectrum instead of indexing an empty array.
+- Synced the tested cleanup to Anvil after checking all affected source
+  checksums. Anvil passed the same 41 tests and rendered 24 real-data figures
+  covering A1/B1/ML at both shared radii and A1 individual comparisons. The
+  A1 direct spectrum contained 6316 bins and the smoke-test LIGO SNR was
+  finite (0.583457 at the test's redshifted mass 10 Msun and distance 150 Mpc).
+  No production figures were overwritten, no full regeneration was launched,
+  and nothing was committed or pushed.
+- This is a structural cleanup, not a fresh scientific sign-off. In particular,
+  ordinary raw-Psi4 time-series plots still associate raw mode samples with the
+  cached uniform retarded-time grid as before. Check the size of that mismatch
+  before changing their sampling or the Psi4-difference reconstruction. The
+  direct detectability spectrum already consumes the matching uniform Psi4
+  intermediate. Do not conflate a parity test with validation of this choice.
 
 ## Current Objective
 
