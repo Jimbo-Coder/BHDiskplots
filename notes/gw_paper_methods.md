@@ -242,6 +242,27 @@ average already applied ($20/3$ normalization, twice Robson et al. at low
 frequency); two independent channels and the $h_{\rm res}$ factor each halve it.
 Wessel footnote 4 [R3] multiplies the averaged curves by $\sqrt2$ instead of
 dividing, which halves every SNR; we do not adopt it.
+
+**In Moore's terms [R2].** Moore's SNR is Eq. (17),
+$\rho^2=4\int|\tilde h|^2/S_n\,df$, where $\tilde h$ is the detector output
+$F_+h_++F_\times h_\times$ [Eq. (48)]. The averaged response is quoted as
+$F=\sqrt{1/5}$ for a right-angle interferometer. That value is the single-term
+average $\langle F_+^2\rangle=\langle F_\times^2\rangle=1/5$. The integrand of
+Eq. (51) as printed, $F_+^2+F_\times^2$, would instead give $2/5$ (checked by
+quadrature). With $F^2=1/5$, the averaged SNR is
+
+$$
+\langle\rho^2\rangle=4\int\frac{|\tilde h_+|^2+|\tilde h_\times|^2}{S_n/F^2}\,df
+=4\int\frac{|\tilde h_{\rm res}|^2}{S_n/(2F^2)}\,df .
+$$
+
+Moore's curve $\sqrt{S_n}/F=\sqrt5\sqrt{S_n}$ therefore pairs with the
+root-sum-square amplitude $\sqrt{|\tilde h_+|^2+|\tilde h_\times|^2}$. For
+$h_{\rm res}$ it must be divided by $\sqrt2$, giving $\sqrt{5/2}\sqrt{S_n}$.
+Wessel's stated aim, a curve averaged over sky position only, leads to the
+same place: the sky-only average of $F_+^2+F_\times^2$ is $2/5$, the literal
+Eq. (51) value. Their $\sqrt{10}$ corresponds to $F^2=1/10$, which is not any
+average of the response.
 Source-orientation averaging above is distinct from detector-sky averaging.
 These are design curves, not an observed LVK network sensitivity; curve
 versions and provenance are in [detector_curves/README.md](../detector_curves/README.md).
