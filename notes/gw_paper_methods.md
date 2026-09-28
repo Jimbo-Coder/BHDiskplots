@@ -219,14 +219,28 @@ The plotted noise and SNR use identical response conventions:
 
 | Detector input | Effective ASD used, $\sqrt{S_n}$ |
 | --- | --- |
-| LIGO A+, CE 40 km, analytic DECIGO instrument ASD | $\sqrt{10}$ times input ASD |
-| LISA SciRDv1 already-averaged PSD | $\sqrt{2}$ times its square root |
-| ET CoBA 10 km, single 90-degree-equivalent PSD | $\sqrt{10}/(3/2)$ times its square root |
+| LIGO A+, CE 40 km, analytic DECIGO instrument ASD | $\sqrt{5/2}$ times input ASD |
+| LISA SciRDv1 single-channel averaged PSD | $1/2$ times its square root |
+| ET CoBA 10 km, single 90-degree-equivalent PSD | $\sqrt{5/2}/(3/2)$ times its square root |
 
-The factors follow the implemented Wessel convention: right-angle response
-factor $\sqrt5$, then the $\sqrt2$ adjustment discussed in footnote 4 [R3].
+The detector records $F_+h_++F_\times h_\times$. Averaging over sky position
+and polarization angle, a right-angle interferometer has
+$\langle F_+^2\rangle=\langle F_\times^2\rangle=1/5$ and
+$\langle F_+F_\times\rangle=0$, so
+
+$$
+\langle|F_+\tilde h_++F_\times\tilde h_\times|^2\rangle
+=\tfrac15\left(|\tilde h_+|^2+|\tilde h_\times|^2\right)
+=\tfrac25\,|\tilde h_{\rm res}|^2 ,
+$$
+
+and $S_{\rm eff}=\tfrac52 S_n$ gives the averaged $\rho^2$ exactly.
 ET's $3/2=\sqrt3\sin60^\circ$ assumes three equal-noise, independent 60-degree
-Michelsons. LISA must not receive the ground-detector response factor again.
+Michelsons. The LISA SciRDv1 table is one channel with the per-polarization
+average already applied ($20/3$ normalization, twice Robson et al. at low
+frequency); two independent channels and the $h_{\rm res}$ factor each halve it.
+Wessel footnote 4 [R3] multiplies the averaged curves by $\sqrt2$ instead of
+dividing, which halves every SNR; we do not adopt it.
 Source-orientation averaging above is distinct from detector-sky averaging.
 These are design curves, not an observed LVK network sensitivity; curve
 versions and provenance are in [detector_curves/README.md](../detector_curves/README.md).

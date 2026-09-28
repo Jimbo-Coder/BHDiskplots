@@ -4,24 +4,42 @@ Last updated: 2026-09-28
 
 ## Current Work
 
-- Sep28 audit (Claude, local only; not yet synced to Anvil):
-  - `rpsi4_uniform.dat` rows past the last source sample are exact zero fill
-    (2-6 rows per cache: the uniform t_ret grid overruns tret[end]). The
-    detectability reader now drops them, and the temporal trial stops at the
-    same measured end. Local A1-A3 CE SNR change: -0.02%, -0.02%, -0.21%.
-    Regression test added; 108 tests pass locally.
-  - OPEN, needs a decision: detector response factor. For the Eq. (8)
-    h_res=sqrt((|h+|^2+|hx|^2)/2), the sky/polarization average of a 90-degree
-    interferometer gives <|F+h+ + Fx hx|^2> = (2/5) h_res^2 (checked by Monte
-    Carlo). The effective ASD is then sqrt(5/2)*ASD, not the Wessel footnote-4
-    sqrt(5)*sqrt(2) now used. Current SNRs and D_L reaches are therefore 2x low
-    relative to the standard sky-averaged SNR; the same applies to LISA/ET/
-    DECIGO. The collaborator script (sqrt(5) only) sits between the two. Code is
-    unchanged pending agreement; if adopted, change only effective_detector_asd.
-  - Gap: ejv_GW.dat (radiated E, J, recoil) and omega22.dat are generated for
-    every case but never plotted or reported.
-  - Removed unused imports, fixed the stale .gitattributes path and deleted
-    regenerable caches in the parent folder.
+- Sep28 audit and corrections:
+  - Detector response CORRECTED. With Eq. (8) h_res, a right-angle
+    interferometer's sky- and polarization-angle-averaged response is
+    <|F+h+ + Fx hx|^2> = (2/5) h_res^2, so S_eff = (5/2) S_n (ASD x sqrt(5/2)).
+    Wessel footnote 4's sqrt(10) multiplies where its own stated aim (a
+    sky-position-only curve) requires dividing, and halves every SNR. The
+    SciRDv1 LISA table is the single-channel 20/3 curve (exactly 2x Robson+2019
+    at low f); now two channels and h_res give 0.5 x sqrt(PSD). A quadrature
+    test of the actual F+/Fx response and a Robson comparison pin both.
+    Expected: ground/DECIGO SNRs 2x, LISA 2.83x the earlier values; horizons
+    grow similarly at low z. All earlier SNR/horizon numbers in these notes
+    use the superseded convention.
+  - rpsi4_uniform.dat rows past the last source sample are exact zero fill
+    (2-6 rows per cache). Detectability and the temporal trial now stop at
+    the last measured sample (local A1-A3 CE SNR change <= 0.21%).
+  - New `run_wip.py gw_radiated`: cumulative E_GW/M_disk and J_GW for the
+    detectability modes (legacy parity-tested flux code, after the 1000 M_BH
+    cut) plus the smoothed (2,2) Psi4 frequency over f_orb. JSON summary also
+    reports all-mode E/J, to expose any m=0 dominance.
+  - README condensed to an index; unused imports removed; stale
+    .gitattributes path fixed; Anvil's newer 2D index taken locally.
+  - Verified on Anvil: 112 tests pass (run_logs/audit_20260928_tests.log);
+    `run_wip.py detectability temporal_trial gw_radiated` exit 0
+    (run_logs/audit_20260928_122239.log; pre-change JSON reports kept in
+    run_logs/pre_audit_20260928/). Every SNR changed by x2.000 (LISA x2.828)
+    apart from negligible band-edge values; fit parameters moved <0.6% from
+    the zero-fill trim; no pass/fail or conditional verdict changed. Example
+    SNRs now: 50 Msun/100 Mpc CE 1.4/4.9/3.5 (A1/A2/A3); 1e3 Msun/500 Mpc
+    DECIGO 13/43/36; 1e5 Msun/50 Mpc LISA 18/60/50. Figures inspected
+    (figures/review/audit_20260928/).
+  - gw_radiated results (outer radius, after 1000 M_BH): l=2, m!=0
+    E_GW/M_disk = 1.8e-8, 1.7e-8, 4.4e-9 (A1-A3), 5.7e-9, 9.2e-10, 2.5e-10
+    (B1-B3). Including all 21 modes raises E by 10^4-10^5 (e.g. A1 3.2e-4):
+    the m=0 FFI content dominates the "radiated" energy, further evidence it
+    is non-radiative drift/junk rather than disk emission. Late (2,2)
+    frequency is 1.4-3.3 f_orb, i.e. not locked to 2 f_orb.
 
 - Sep23 luminosity-distance figures: added a linked right-hand redshift axis
   using the same FlatLambdaCDM distance mapping as the analysis, with sparse

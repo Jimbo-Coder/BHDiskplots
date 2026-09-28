@@ -24,20 +24,28 @@ The analytic DECIGO PSD is Yagi and Seto, Phys. Rev. D 83, 044011 (2011),
 Eq. (5), and is kept in `gw_detectability.py` rather than a table. That PSD is
 for one effective L-shaped interferometer and is not sky averaged.
 
-The paper figures follow the convention stated in Wessel et al. (2021):
+Effective noise is defined so that `4*int h_res^2/S_eff df` equals the
+detector-sky- and polarization-angle-averaged SNR^2, with Wessel Eq. (8)
+`h_res^2 = (|h+|^2 + |hx|^2)/2`:
 
-- A+, CE, and DECIGO instrument ASDs are first multiplied by `sqrt(5)` for
-  the standard sky-and-polarization average of a right-angle interferometer.
-- Every resulting sky-and-polarization-averaged curve is multiplied by
-  `sqrt(2)` because the plotted source quantity already contains the
-  `1/sqrt(2)` polarization average in `h_res`.
-- The LISA file already includes the first average, so it receives only the
-  second `sqrt(2)` factor.
-- ET uses the square root of column 4, then `sqrt(10)/(3/2)`. The denominator
+- A right-angle interferometer has `<F+^2> = <Fx^2> = 1/5` and `<F+ Fx> = 0`,
+  so `<|F+ h+ + Fx hx|^2> = (2/5) h_res^2`. A+, CE, and DECIGO instrument
+  ASDs are multiplied by `sqrt(5/2)`.
+- ET uses the square root of column 4, then `sqrt(5/2)/(3/2)`. The denominator
   is `sqrt(3)*sin(60 degrees)` for three independent, equal-noise 60-degree
   Michelsons relative to the supplied single 90-degree curve. Thus ET is a
-  triangular-network estimate under uncorrelated-noise assumptions, not a
-  single Michelson with the right-angle response applied unchanged.
+  triangular-network estimate under uncorrelated-noise assumptions.
+- The LISA table equals twice the Robson et al. (2019) two-channel curve at
+  low frequency (checked in the tests): it is one Michelson channel already
+  averaged per polarization (the 20/3 normalization). Two independent
+  channels halve that PSD and the `h_res` convention halves it again, so the
+  effective ASD is half its square root.
+
+Wessel et al. (2021) footnote 4 instead multiplies `5*S_n` by 2 (`sqrt(10)`
+in ASD). Their stated aim, a sky-position-only averaged curve, requires
+dividing by 2, so that convention understates every SNR by a factor of 2.
+Results before 2026-09-28 used it: ground-based and DECIGO SNRs were 2x low,
+LISA 2*sqrt(2)x low (single channel).
 
 Exactly these effective curves are used for both the plotted characteristic
 noise and the SNR/horizon integral.

@@ -84,9 +84,10 @@ SOURCE_AVERAGING = "mean"
 LOW_FREQUENCY_CYCLES = 3.0
 
 # 5. Noise model and integration support in observed Hz, NOT source cutoffs.
-# Input quantities are explicit. Wessel Eq. 8/footnote 4 convention: multiply
-# instrument ASD by sqrt(5)*sqrt(2); the already averaged LISA PSD needs only
-# sqrt(2) after taking its square root. Same effective noise for plots and SNR.
+# Input quantities are explicit. With Eq. 8 h_res, the sky/polarization-averaged
+# response of a right-angle interferometer is (2/5) h_res^2: instrument ASD
+# times sqrt(5/2). NOT Wessel footnote 4's sqrt(10), which halves every SNR.
+# Same effective noise for plots and SNR; see effective_detector_asd.
 ACTIVE_DETECTORS = ("ligo", "et", "ce", "decigo", "lisa")
 DETECTOR_CURVE_DIR = config.REPOSITORY_ROOT / "detector_curves"
 DETECTOR_TABLES = {
@@ -750,26 +751,29 @@ def _log_interpolate_curve(curve: DetectorCurve, frequency) -> np.ndarray:
 
 
 def effective_detector_asd(detector: str, frequency, curves) -> np.ndarray:
-    """Noise ASD in the same Wessel convention as polarization-averaged h_res.
+    """Effective ASD for which 4*int h_res^2/S_eff df is the sky-averaged SNR^2.
 
-    A+, CE, and DECIGO start as optimal single-interferometer curves. The
-    factor sqrt(5) performs the standard right-angle sky/polarization response
-    average. Wessel et al. then multiply all sky-and-polarization-averaged
-    curves by sqrt(2), because h_res already contains the 1/sqrt(2)
-    polarization average. The LISA file already includes the first average.
+    The detector sees F+ h+ + Fx hx. Averaging over sky position and
+    polarization angle gives <F+^2> = <Fx^2> = 1/5 for a right-angle
+    interferometer and <F+ Fx> = 0, so <|F+h+ + Fx hx|^2> = (2/5) h_res^2 with
+    Eq. (8) h_res^2 = (|h+|^2+|hx|^2)/2. Hence S_eff = (5/2) S_instrument.
+    Wessel footnote 4 instead multiplies the 5*S_n curve by 2 (sqrt(10) in
+    ASD), which halves every SNR; tests pin the averaged response directly.
     """
     if detector == "decigo":
-        return np.sqrt(10.0) * _decigo_instrument_asd(frequency)
+        return np.sqrt(2.5) * _decigo_instrument_asd(frequency)
     asd = _log_interpolate_curve(curves[detector], frequency)
     if detector in {"ligo", "ce"}:
-        return np.sqrt(10.0) * asd
+        return np.sqrt(2.5) * asd
     if detector == "et":
         # CoBA's input is a single 90-degree equivalent. Three independent
         # 60-degree Michelsons give sqrt(3)*sin(60)=3/2 network amplitude gain.
-        # Retain the same Wessel polarization convention as the other curves.
-        return np.sqrt(10.0) / 1.5 * asd
+        return np.sqrt(2.5) / 1.5 * asd
     if detector == "lisa":
-        return np.sqrt(2.0) * asd
+        # SciRDv1 S_h is one Michelson channel averaged per polarization
+        # (20/3; exactly twice Robson+2019 at low f). Two independent channels
+        # (A, E) halve it, and the h_res convention halves it again.
+        return 0.5 * asd
     raise ValueError(f"Unknown detector {detector!r}")
 
 

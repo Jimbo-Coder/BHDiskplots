@@ -228,6 +228,15 @@ separate convention.
 
 ## Detector Conventions
 
+- 2026-09-28, supersedes the Wessel sqrt(10) convention recorded below and all
+  earlier SNR/horizon numbers: effective ASD = sqrt(5/2) x instrument ASD for
+  A+/CE/DECIGO, sqrt(5/2)/(3/2) for ET, and 0.5 x sqrt(PSD) for the
+  single-channel SciRDv1 LISA table (two channels). This makes
+  4*int h_res^2/S_eff df equal the sky- and polarization-angle-averaged
+  SNR^2 exactly (quadrature test in tests/test_gw_detectability.py). Old
+  ground/DECIGO SNRs were 2x low and LISA 2*sqrt(2)x low; horizons scale
+  similarly at low z.
+
 - Determine whether every imported detector curve is PSD, ASD, or
   characteristic noise before plotting or integrating it.
 - Determine whether each curve already includes source-sky, detector-sky, and

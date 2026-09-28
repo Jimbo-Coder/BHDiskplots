@@ -22,6 +22,7 @@ WIP_PLOTS = {
     "strain": "gw_waveforms",
     "strain_panel": "gw_strain_polarization_panel",
     "strain_observer": "gw_strain_observer",
+    "gw_radiated": "gw_radiated",
     "strain_minus_ml": "gw_waveforms",
     "strain_from_psi4_minus_ml": "gw_waveforms",
     "detectability": "gw_detectability_all",

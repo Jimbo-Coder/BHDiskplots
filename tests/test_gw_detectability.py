@@ -272,7 +272,34 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         curves = analysis.load_detector_curves()
         np.testing.assert_allclose(curves["et"].asd, np.sqrt(raw[:, 3]))
         np.testing.assert_allclose(analysis.effective_detector_asd("et", raw[:, 0], curves),
-                                   np.sqrt(10.)/1.5*np.sqrt(raw[:, 3]), rtol=1e-12)
+                                   np.sqrt(2.5)/1.5*np.sqrt(raw[:, 3]), rtol=1e-12)
+
+    def test_effective_noise_reproduces_sky_and_polarization_averaged_snr(self):
+        # Quadrature over sky position and polarization angle of the actual
+        # right-angle response F+ h+ + Fx hx, with no convention assumed.
+        cos_theta, weights = np.polynomial.legendre.leggauss(16)
+        phi = np.linspace(0, 2*np.pi, 32, endpoint=False)
+        psi = np.linspace(0, np.pi, 16, endpoint=False)
+        c, p, s = np.meshgrid(cos_theta, phi, psi, indexing="ij")
+        a, b = 0.5*(1 + c**2)*np.cos(2*p), c*np.sin(2*p)
+        f_plus = a*np.cos(2*s) - b*np.sin(2*s)
+        f_cross = a*np.sin(2*s) + b*np.cos(2*s)
+        w = weights[:, None, None]/(2*phi.size*psi.size)
+        h_plus, h_cross, instrument_psd = 1.3 + 0.4j, -0.2 + 0.9j, 7.0
+        averaged = np.sum(w*np.abs(f_plus*h_plus + f_cross*h_cross)**2)/instrument_psd
+        h_res_squared = (abs(h_plus)**2 + abs(h_cross)**2)/2
+        curves = {"ligo": analysis.DetectorCurve(np.array([1., 2.]), np.full(2, np.sqrt(instrument_psd)))}
+        effective = analysis.effective_detector_asd("ligo", np.array([1.5]), curves)[0]
+        self.assertAlmostEqual(h_res_squared/effective**2, averaged, places=12)
+
+    def test_lisa_table_is_single_channel_scird_curve(self):
+        curve = analysis.load_detector_curves()["lisa"]
+        f = np.array([1e-4, 1e-3, 3e-3])
+        L, f_star = 2.5e9, 19.09e-3
+        p_oms = (1.5e-11)**2*(1 + (2e-3/f)**4)
+        p_acc = (3e-15)**2*(1 + (0.4e-3/f)**2)*(1 + (f/8e-3)**4)
+        robson = 10/(3*L**2)*(p_oms + 2*(1 + np.cos(f/f_star)**2)*p_acc/(2*np.pi*f)**4)*(1 + 0.6*(f/f_star)**2)
+        np.testing.assert_allclose(analysis._log_interpolate_curve(curve, f)**2/robson, 2.0, rtol=2e-3)
 
     def test_source_scale_labels_use_latex_scientific_notation(self):
         from wip_plots import gw_detectability_all as plots
