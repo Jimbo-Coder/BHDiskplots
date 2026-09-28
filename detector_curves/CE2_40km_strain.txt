@@ -1,3 +1,7 @@
+# Source: CE-T2000017-v9, ce_sensitivity.zip/cosmic_explorer_strain.txt.
+# https://dcc.cosmicexplorer.org/cgi-bin/DocDB/ShowDocument?.submit=Identifier&docid=T2000017
+# Columns: frequency [Hz], strain amplitude spectral density [1/sqrt(Hz)].
+# Baseline 40 km design; published strain curve assumes a source 15 deg off normal incidence.
 5.000000000000000888e+00 8.039054875161016000e-24
 5.034693157380139006e+00 7.784632764301914380e-24
 5.069627037794075974e+00 7.540885401498626541e-24

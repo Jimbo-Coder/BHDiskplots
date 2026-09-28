@@ -1,28 +1,40 @@
 # Detector curves
 
-The detectability code treats these files according to the explicit loaders
-and response conversion in `gw_detectability.py`.
+Each table starts with `#` comments giving its source, column units, and
+response convention. The numeric rows are unchanged, and `numpy.loadtxt`
+ignores the comments. Strain is dimensionless: ASD has units `1/sqrt(Hz)` and
+PSD has units `1/Hz`. The detectability code uses these as one-sided spectra,
+as specified by the loaders and response conversion in `gw_detectability.py`.
 
 - `AplusDesign.txt`: frequency in Hz and strain ASD in `1/sqrt(Hz)`. This is
-  the LIGO A+ design target distributed as LIGO-T1800042 and as the A+ O5
-  target in LIGO-T2200043.
+  the [original LIGO A+ design target, LIGO-T1800042-v5](https://dcc.ligo.org/LIGO-T1800042/public),
+  also distributed as an A+ O5 target in LIGO-T2200043. It is a design
+  estimate, not measured noise or a later O5 projection.
 - `CE2_40km_strain.txt`: frequency in Hz and strain ASD in `1/sqrt(Hz)` from
-  the current baseline 40 km Cosmic Explorer curve, CE-T2000017-v9,
-  `cosmic_explorer_strain.txt` (27 October 2025).
+  the baseline 40 km [Cosmic Explorer curve, CE-T2000017-v9](https://dcc.cosmicexplorer.org/cgi-bin/DocDB/ShowDocument?.submit=Identifier&docid=T2000017),
+  `cosmic_explorer_strain.txt` (27 October 2025). The numeric rows exactly
+  match that archive. CE specifies a source 15 degrees off normal incidence;
+  the later `sqrt(5/2)` factor is our simple sky-response approximation, not
+  an average supplied with the CE table.
 - `LISA_Alloc_Sh.txt`: frequency in Hz and equivalent sky-averaged strain PSD
-  in `1/Hz`, using the LISA SciRDv1 `AnalyticNoise.sensitivity()` allocation.
-  The analysis takes its square root exactly once and does not apply the
-  right-angle ground-detector response factor again.
-- `ET10kmcolumns.txt`: unmodified public ET CoBA table, ET-0304B-22
-  (28 March 2023). Column 1 is Hz; column 4 is the combined LF+HF PSD for
-  one 10 km, 90-degree-equivalent interferometer. This is explicitly the
-  CoBA design curve, not a claim about a latest operating detector.
+  in `1/Hz`, tabulated from the LISA SciRDv1
+  [`AnalyticNoise.sensitivity()` model](https://lisa.pages.in2p3.fr/LDC/_modules/ldc/lisa/noise/noise.html).
+  Its calculation already includes antenna/projection averaging; it is not
+  a raw TDI PSD. The original tabulation command and LDC revision were not
+  recorded. The analysis takes its square root exactly once and does not
+  apply the right-angle ground-detector response factor again.
+- `ET10kmcolumns.txt`: public ET CoBA table, ET-0304B-22 (28 March 2023),
+  with comment metadata added but numeric rows unchanged. Column 1 is Hz;
+  columns 2, 3, and 4 are the ETHF, ETLF, and combined LF+HF strain PSDs
+  in `1/Hz` for one 10 km L-shaped interferometer. This is a CoBA design
+  curve, not a measurement or the full triangular-network sensitivity.
   [ET source and conventions](https://apps.et-gw.eu/tds/?r=18213),
   [original table](https://apps.et-gw.eu/tds/?call_file=18213_ET10kmcolumns.txt).
 
-The analytic DECIGO PSD is Yagi and Seto, Phys. Rev. D 83, 044011 (2011),
-Eq. (5), and is kept in `gw_detectability.py` rather than a table. That PSD is
-for one effective L-shaped interferometer and is not sky averaged.
+The analytic DECIGO one-sided strain PSD in `1/Hz` is from
+[Yagi and Seto, Phys. Rev. D 83, 044011 (2011)](https://doi.org/10.1103/PhysRevD.83.044011),
+Eq. (5), and is kept in `gw_detectability.py` rather than a table. It is for
+one effective L-shaped interferometer and is not sky averaged.
 
 Effective noise is defined so that `4*int h_res^2/S_eff df` equals the
 detector-sky- and polarization-angle-averaged SNR^2, with Wessel Eq. (8)
@@ -41,10 +53,13 @@ detector-sky- and polarization-angle-averaged SNR^2, with Wessel Eq. (8)
   channels halve that PSD and the `h_res` convention halves it again, so the
   effective ASD is half its square root.
 
-Wessel et al. (2021) footnote 4 instead multiplies `5*S_n` by 2 (`sqrt(10)`
-in ASD). Their stated aim, a sky-position-only averaged curve, requires
-dividing by 2, so that convention understates every SNR by a factor of 2.
-Results before 2026-09-28 used it: ground-based and DECIGO SNRs were 2x low,
+Wessel et al. (2021) footnote 4 instead describes multiplying `5*S_n` by 2
+(`sqrt(10)` in ASD). For the same raw instrument PSD and their Eq. (8)
+amplitude, the direct sky average gives `(5/2)*S_n`: the stated Wessel curve
+is twice as high in ASD and would halve an SNR calculated with it. We have
+not independently reproduced their numerical SNRs or checked every input
+curve's convention. Our results before 2026-09-28 used that rescaling:
+ground-based and DECIGO SNRs were 2x low relative to our current convention,
 LISA 2*sqrt(2)x low (single channel).
 
 Exactly these effective curves are used for both the plotted characteristic

@@ -1,3 +1,8 @@
+# Model: LDC SciRDv1 AnalyticNoise.sensitivity() tabulation.
+# https://lisa.pages.in2p3.fr/LDC/_modules/ldc/lisa/noise/noise.html
+# Columns: frequency [Hz], strain-equivalent sensitivity PSD [1/Hz].
+# The model includes antenna/projection averaging; this is not a raw TDI noise PSD.
+# The original tabulation command and LDC revision were not recorded here.
    9.9999999999999991e-06	   3.9449850215497845e-27	
    1.0194061408051512e-05	   3.5153953356410738e-27	
    1.0391888799112494e-05	   3.1325893478436878e-27	

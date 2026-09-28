@@ -1,3 +1,8 @@
+# Source: ET-0304B-22 CoBA table, ET10kmcolumns.txt (28 March 2023).
+# https://apps.et-gw.eu/tds/?call_file=18213_ET10kmcolumns.txt
+# Columns: frequency [Hz], ETHF strain PSD [1/Hz], ETLF strain PSD [1/Hz],
+#          combined LF+HF strain PSD [1/Hz]. The analysis uses column 4.
+# Each PSD is for one L-shaped 10 km interferometer, not the full ET triangle.
 1.000000000000000000e+00 3.480218086809455061e-33 2.588841025128390306e-26 3.480217618958544371e-33
 1.003075857942949956e+00 3.112909436437413435e-33 3.496195884414079029e-26 3.112909159273186825e-33
 1.006161176787985001e+00 2.787848803136547014e-33 2.747357981945346160e-26 2.787848520242937497e-33
