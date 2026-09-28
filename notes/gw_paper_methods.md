@@ -1,6 +1,6 @@
 # GW Methods: Equations for the Paper
 
-Checked against the local and Anvil implementations on 2026-09-23. This is a
+Checked against the local and Anvil implementations on 2026-09-28. This is a
 writing aid describing what the code does, not a claim that all systematic
 errors are controlled. Equations below use LaTeX notation.
 
@@ -112,7 +112,8 @@ p_{\ell m}=m_{\rm BH}P_{\ell m}=\frac{d^2q_{\ell m}}{d\tau^2}.
 $$
 
 Remove pre-arrival samples, then the first $1000m_{\rm BH}$ after the first
-nonnegative retarded-time sample. On the retained interval of length
+nonnegative retarded-time sample. The uniform grid ends at the last measured
+Psi4 sample; zero-filled grid points beyond it are discarded. On the retained interval of length
 $\Delta\tau$, apply a symmetric Tukey window $W$ with $\alpha=0.05$
 (2.5% tapered at each end), then compute
 
@@ -289,11 +290,90 @@ The tapered/joined Psi4 is not the exact second derivative of a separately
 tapered/joined strain curve. A1 is currently a **conditional illustration**;
 A2/A3 retain measured data only. Do not claim a validated full-lifetime signal.
 
+## 8. Radiated Energy, Angular Momentum, and Frequency
+
+The `gw_radiated` diagnostic accumulates, from the same FFI modes and after
+the same $1000m_{\rm BH}$ cut, over the four detectability modes only [R4]:
+
+$$
+\begin{aligned}
+E_{\rm GW}(t)&=\frac1{16\pi}\int_{t_{\rm cut}}^{t}\sum_{\ell m}
+ \left|\dot H_{\ell m}\right|^2dt',\\
+J_{z,\rm GW}(t)&=\frac1{16\pi}\int_{t_{\rm cut}}^{t}\sum_{\ell m}
+ m\,\Im\!\left[H_{\ell m}\dot H^{*}_{\ell m}\right]dt',
+\end{aligned}
+$$
+
+with the sign chosen so that prograde emission gives $J_{z,\rm GW}>0$. The code
+reuses the parity-tested port of the reference routine. We report
+$E_{\rm GW}/M_{\rm disk,0}$ and $J_{z,\rm GW}/(M_{\rm disk,0}m_{\rm BH})$. The
+instantaneous $(2,2)$ frequency is taken from the Psi4 phase, so it is
+independent of the FFI cutoff:
+
+$$
+f_{22}=\frac1{2\pi}\left|\frac{d}{dt}\arg P_{22}\right|,
+$$
+
+averaged over one orbital period $P_c$ and shown as $f_{22}/f_{\rm orb}$ with
+$f_{\rm orb}=\Omega_{\rm orb,0}/2\pi$. Including the $m=0$ modes raises
+$E_{\rm GW}$ by $10^4$-$10^5$. That content is FFI drift or other
+non-radiative signal, so the physical totals exclude it.
+
+## 9. Algorithm Summary (LaTeX)
+
+Requires `\usepackage{algorithm,algpseudocode}`. Symbols follow Secs. 1-6.
+Compiled and checked 2026-09-28 in `article` and in `revtex4-2` two-column.
+RevTeX 4.2 clashes with the `float` package that `algorithm` loads ("Missing
+\endcsname ... \c@float@type"). There, load only `algpseudocode` and replace
+`\begin{algorithm}[t]`/`\end{algorithm}` with
+`\begin{figure}[t]\hrule\smallskip` / `\smallskip\hrule\end{figure}`.
+
+```latex
+\begin{algorithm}[t]
+\caption{Detectability of the measured signal from direct $\Psi_4$.}
+\label{alg:detectability}
+\begin{algorithmic}[1]
+\Require Modes $r_A\Psi_{4,\ell m}(t)$ at extraction radius $r_A$, with
+  $(\ell,m)\in\{(2,\pm1),(2,\pm2)\}$; initial BH mass $m_{\rm BH}$ ($G=c=1$)
+\State Build the gauge-corrected retarded time $t_{\rm ret}$ and interpolate all
+  modes onto a common uniform grid (Sec.~1)
+\State Keep $t_{\rm ret}\ge0$; discard the first $1000\,m_{\rm BH}$ of initial
+  relaxation
+\State Form $\tau=t_{\rm ret}/m_{\rm BH}$ and $p_{\ell m}=m_{\rm BH}r_A\Psi_{4,\ell m}$;
+  apply a Tukey window ($\alpha=0.05$) and FFT with $2\times$ zero padding
+\State Keep $3/\Delta\tau\le\nu<\nu_{\rm Nyq}$
+\For{each source direction $\Omega$ (Gauss--Legendre quadrature)}
+  \State $\tilde p(\nu,\Omega)\gets\sum_{\ell m}\tilde p_{\ell m}(\nu)\,{}_{-2}Y_{\ell m}(\Omega)$
+  \State $A(\nu,\Omega)\gets\sqrt{(|\mathcal F[W\Re p]|^2+|\mathcal F[W\Im p]|^2)/2}$
+\EndFor
+\State $Q(\nu)\gets\langle A\rangle_\Omega/(2\pi\nu)^2$ \Comment{direction-mean amplitude of $h$}
+\For{each source-frame mass $M_{\rm BH}$ and redshift $z$}
+  \State $f\gets\nu/[M_{\rm BH}(1+z)]$, \quad
+    $|\tilde h(f)|\gets Q\,M_{\rm BH}^2(1+z)^2/D_L(z)$
+  \State $h_c\gets2f|\tilde h|$, \quad $h_n\gets\sqrt{fS_{\rm eff}}$ with
+    $S_{\rm eff}=\tfrac52S_n$ (right-angle interferometer)
+  \State $\rho^2\gets\int(h_c/h_n)^2\,d\ln f$ over the detector band
+\EndFor
+\State \Return the luminosity distance where $\rho=8$, for each $M_{\rm BH}$
+\end{algorithmic}
+\end{algorithm}
+```
+
+In prose: we Fourier-transform the windowed, retarded-time $r\Psi_4$ multipoles
+directly, reconstruct both polarizations over a quadrature of source
+directions, and average the polarization amplitude
+$\sqrt{(|\tilde h_+|^2+|\tilde h_\times|^2)/2}$ over directions. Dividing by
+$(2\pi f)^2$ gives the strain spectrum. It is rescaled to a source-frame BH
+mass and luminosity distance, and compared with detector noise averaged over
+sky position and polarization angle. For this amplitude, that noise is
+$S_{\rm eff}=\tfrac52S_n$ for a right-angle interferometer.
+
 ## Paper Checklist and References
 
 State the extraction sphere, mass convention, retained modes/time interval,
 FFI cutoff for time-series plots, FFT window/floor for spectra, angular
-statistic, detector response/curve versions, cosmology and SNR threshold.
+statistic, detector response ($S_{\rm eff}=\tfrac52S_n$, and how it differs from
+[R3] footnote 4) and curve versions, cosmology and SNR threshold.
 Separate measured results from model-dependent tails. Finite-radius, window,
 low-frequency and mode-selection uncertainties remain; do not claim that
 all transients, memory, or nonradiative contamination have been removed.
@@ -312,9 +392,18 @@ all transients, memory, or nonradiative contamination have been removed.
   Eqs. (7), (8), (10), footnote 4, Figs. 9 and 11-13. Our direct-Psi4 spectrum,
   full directional quadrature and conditional continuation are not identical
   to their analysis. [Local PDF](reference/Wessel_2021_PRD103_043013_accepted.pdf).
+  Their footnote-4 noise factor ($\sqrt{10}$) is not used; see Sec. 6.
+- **[R4] Ruiz, Alcubierre, Nunez & Takahashi (2008)**, *Multipole expansions for
+  energy and momenta carried by gravitational waves*, GRG 40, 1705:
+  [arXiv:0707.4654](https://arxiv.org/abs/0707.4654). Cite for $E$, $J_z$ fluxes.
+- **[R5] Robson, Cornish & Liu (2019)**, *The construction and use of LISA
+  sensitivity curves*, CQG 36, 105011:
+  [arXiv:1803.01944](https://arxiv.org/abs/1803.01944). The SciRDv1 table equals
+  twice their two-channel curve; cite for the LISA channel/averaging factors.
 
 Implementation pointers: [gw.py](../gw.py) (`reconstruct_strain`),
 [gw_detectability.py](../gw_detectability.py) (numbered analysis sections),
-[gw_strain_observer.py](../wip_plots/gw_strain_observer.py) (face-on time series).
+[gw_strain_observer.py](../wip_plots/gw_strain_observer.py) (face-on time series),
+[gw_radiated.py](../wip_plots/gw_radiated.py) (radiated E, J and frequency).
 Plot formatting is separate in
 [gw_detectability_all.py](../wip_plots/gw_detectability_all.py).

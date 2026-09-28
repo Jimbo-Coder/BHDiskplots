@@ -2,6 +2,13 @@
 
 Plotting and GW post-processing for the BHDisk simulations on Anvil.
 
+```text
+read-only simulation data (scalars, Psi4, 2D slices)
+  -> generate_gw.py -> gw_work/   (retarded time, uniform r*Psi4, FFI strain)
+  -> paper_plots/, wip_plots/, gw_detectability.py   (read caches only)
+  -> figures/
+```
+
 ## Where things live
 
 | Path | Contents |
@@ -85,8 +92,9 @@ is tracked.
 - Difference plots keep `h(Psi4_disk) - h(Psi4_ML)` and `h(Psi4_disk - Psi4_ML)`
   distinct.
 
-Method details and measured sensitivities: `notes/gw_paper_methods.md` and
-`notes/KNOWLEDGE.md`.
+For paper writing, `notes/gw_paper_methods.md` gives every equation the code
+uses, plus a compiled LaTeX `algorithm` block (Sec. 9). Measured sensitivities
+and dated numbers are in `notes/KNOWLEDGE.md`.
 
 ## Data safety and syncing
 
