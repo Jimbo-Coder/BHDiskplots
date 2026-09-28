@@ -45,12 +45,16 @@ def plot(sims):
     rho_vals = []
     ell_vals = []
     xvals = []
-    mlittles = []
+    adm_masses = []
     refs = {}
     for sim in sims:
-        mlittles.append(sim.config.mlittle)
-        x_rho = sim.emdg_x / sim.config.mlittle
-        x_ell = sim.ell_x / sim.config.mlittle
+        mass = sim.config.gw_madm
+        if mass is None or not np.isfinite(mass) or mass <= 0:
+            raise ValueError(f"{sim.config.name}: a positive ADM mass is required")
+        adm_masses.append(mass)
+        # Along the positive equatorial x ray, coordinate radius r equals x.
+        x_rho = sim.emdg_x / mass
+        x_ell = sim.ell_x / mass
 
         rm = (x_rho > 0) & np.isfinite(sim.rho_initial) & (sim.rho_initial > 0)
         if np.any(rm):
@@ -65,11 +69,11 @@ def plot(sims):
             ell_vals.append(sim.ell[em])
             xvals.append(x_ell[em])
         if np.any(erm):
-            refs.setdefault(round(float(sim.config.q), 2), {"x": x_ell[erm], "y": sim.ell[erm], "mlittle": sim.config.mlittle})
+            refs.setdefault(round(float(sim.config.q), 2), {"x": x_ell[erm], "y": sim.ell[erm], "mass": mass})
 
     ax_rho.set_ylabel(r"$\rho_0$")
     ax_ell.set_ylabel(r"$\ell=-u_\phi/u_t$")
-    ax_ell.set_xlabel(r"$x/m$")
+    ax_ell.set_xlabel(r"$r/M$")
 
     if rho_vals:
         rv = np.concatenate(rho_vals)
@@ -90,7 +94,7 @@ def plot(sims):
         xv = np.concatenate(xvals)
         xv = xv[np.isfinite(xv) & (xv > 0)]
         if xv.size:
-            xmax_over_m = XMAX_PHYSICAL / min(mlittles)
+            xmax_over_m = XMAX_PHYSICAL / min(adm_masses)
             ax_ell.set_xlim(XMIN_OVER_M, min(np.max(xv), xmax_over_m))
 
     x_right = ax_ell.get_xlim()[1]
@@ -100,7 +104,7 @@ def plot(sims):
         ref = refs[q]
         x = ref["x"]
         y = ref["y"]
-        x0_over_m = spec["x0"] / ref["mlittle"]
+        x0_over_m = spec["x0"] / ref["mass"]
         candidates = np.where(x >= x0_over_m)[0]
         if not candidates.size:
             continue
@@ -114,7 +118,7 @@ def plot(sims):
         ax_ell.text(
             xr[li],
             yr[li] + spec.get("label_yshift", 0.0),
-            rf"$x^{{{spec['power']:.2f}}}$",
+            rf"$r^{{{spec['power']:.2f}}}$",
             color="0.35",
             fontsize=PAPER_FONT_SIZE,
             ha="center",

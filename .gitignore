@@ -17,6 +17,7 @@ gw_work/
 work/
 psi4_hlm_ref/rhphc
 *.dat.generated
+data/mode_diagnostics/
 
 # Batch-job state
 /run_logs/

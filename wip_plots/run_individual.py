@@ -13,16 +13,13 @@ if __package__ in (None, ""):
 
 from config import PLOTS_DIR
 from wip_plots.gw_waveforms import individual_main
+from wip_plots.gw_detectability_all import individual_main as detectability_individual_main
 
 # Critical knobs.
 ALL_SIM_ALIASES = {"all": ["A1", "A2", "A3", "B1", "B2", "B3"]}
 
 INDIVIDUAL_PLOT_MODULES = [
     ("paper_plots", "rho2d_individual"),
-]
-
-INDIVIDUAL_EXTRA_MODULES = [
-    ("wip_plots", "gw_detectability_diagnostics_individual"),
 ]
 
 # Operational knobs.
@@ -80,10 +77,8 @@ def main(argv=None):
         individual_main(module_argv)
 
         if args.extra:
-            for package_name, module_name in INDIVIDUAL_EXTRA_MODULES:
-                print(f"running {module_name} for {sim}")
-                module = import_module(f"{package_name}.{module_name}")
-                module.main(module_argv)
+            print(f"running detectability validation for {sim}")
+            detectability_individual_main(module_argv)
 
 
 if __name__ == "__main__":

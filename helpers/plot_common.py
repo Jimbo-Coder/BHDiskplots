@@ -5,7 +5,6 @@ import argparse
 from pathlib import Path
 
 from config import PLOTS_DIR
-from .reader import load_sims
 from .style import apply_paper_style
 
 

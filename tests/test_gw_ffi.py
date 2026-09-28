@@ -274,5 +274,81 @@ class PythonFFITests(unittest.TestCase):
                 )
 
 
+class ObserverStrainTests(unittest.TestCase):
+    @staticmethod
+    def waveform():
+        from config import all_sim_configs
+        from gw import StrainResult, mode_columns
+
+        case = all_sim_configs(["A1"])[0]
+        data = np.zeros((5, N_PSI4_COLUMNS))
+        data[:, 0] = case.mlittle * np.arange(5.)
+        re, im = mode_columns(2, 2)
+        data[:, re] = case.mlittle * np.array([1., 2., 4., 2., 1.])
+        data[:, im] = -0.5 * data[:, re]
+        for mode in ((2, 1), (2, -1), (2, -2), (2, 0)):
+            re, im = mode_columns(*mode)
+            data[:, re:im + 1] = 1.e6  # Must not contribute at the north pole.
+        return case, StrainResult(Path("cache"), Path("input"), data, None, None, None, "", "")
+
+    def test_face_on_projection_and_physical_units(self):
+        from gw_detectability import METERS_PER_M_SUN, METERS_PER_MPC, SECONDS_PER_M_SUN
+        from wip_plots.gw_strain_observer import observer_waveform
+
+        case, strain = self.waveform()
+        time, hp, hc, peak = observer_waveform(case, strain, source_mass=50., distance=100.,
+                                               min_tret_mbh=0., redshift=0.)
+        amplitude = np.sqrt(5 / (4 * np.pi)) * 50 * METERS_PER_M_SUN / (100 * METERS_PER_MPC)
+        np.testing.assert_allclose(hp, amplitude * np.array([1., 2., 4., 2., 1.]), atol=0)
+        np.testing.assert_allclose(hc, -0.5 * hp, atol=0)
+        np.testing.assert_allclose(time, (np.arange(5.) - 2) * 50 * SECONDS_PER_M_SUN, atol=1e-18)
+        self.assertEqual(peak, 2.)
+
+    def test_mass_distance_redshift_and_code_mass_scaling(self):
+        from wip_plots.gw_strain_observer import observer_waveform
+
+        case, strain = self.waveform()
+        time, hp, _, _ = observer_waveform(case, strain, min_tret_mbh=0.)
+        for kwargs, time_factor, amplitude_factor in (
+            ({"source_mass": 100.}, 2., 2.), ({"distance": 200.}, 1., 0.5),
+            ({"redshift": 1.}, 2., 2.),
+        ):
+            other = observer_waveform(case, strain, min_tret_mbh=0., **kwargs)
+            np.testing.assert_allclose(other[0], time * time_factor, atol=1e-18)
+            np.testing.assert_allclose(other[1], hp * amplitude_factor, atol=0)
+        scaled = replace(strain, rhphc=2 * strain.rhphc)
+        other = observer_waveform(replace(case, mlittle=2 * case.mlittle), scaled, min_tret_mbh=0.)
+        np.testing.assert_allclose(other[0], time, atol=1e-18)
+        np.testing.assert_allclose(other[1], hp, atol=0)
+
+    def test_time_selection_does_not_extrapolate_or_force_endpoints_to_zero(self):
+        from wip_plots.gw_strain_observer import observer_waveform
+
+        case, strain = self.waveform()
+        time, hp, _, peak = observer_waveform(case, strain, min_tret_mbh=1.5, align_peak=False)
+        self.assertEqual(time.size, 3)
+        self.assertGreater(time[0], 0.)
+        self.assertGreater(hp[-1], 0.)
+        self.assertEqual(peak, 2.)
+        with self.assertRaises(ValueError):
+            observer_waveform(case, strain, min_tret_mbh=10.)
+        with self.assertRaises(ValueError):
+            observer_waveform(case, strain, distance=0.)
+
+    def test_all_mode_selection_uses_only_m_two_at_pole(self):
+        from gw import mode_columns
+        from wip_plots.gw_strain_observer import observer_waveform
+
+        case, strain = self.waveform()
+        subset = observer_waveform(case, strain, min_tret_mbh=0.)
+        all_modes = observer_waveform(case, strain, modes="all", min_tret_mbh=0.)
+        np.testing.assert_array_equal(all_modes[1], subset[1])
+        re, _ = mode_columns(3, 2)
+        strain.rhphc[:, re] = case.mlittle
+        all_modes = observer_waveform(case, strain, modes="all", min_tret_mbh=0.)
+        ratio = (all_modes[1] - subset[1]) / subset[1][0]
+        np.testing.assert_allclose(ratio, np.sqrt(7 / 5))
+
+
 if __name__ == "__main__":
     unittest.main()

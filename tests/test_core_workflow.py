@@ -56,7 +56,114 @@ def carpet_2d_iteration(iteration, time_value, ref_levels=(0,)):
     return "".join(lines)
 
 
+class FullWorkflowTests(unittest.TestCase):
+    def test_default_workflow_rebuilds_cache_before_plotting(self):
+        import config
+        import generate_gw
+        import run_all
+
+        self.assertTrue(config.RUN_GW_CACHE)
+        self.assertTrue(config.GW_REGENERATE_EXISTING)
+        calls = mock.Mock()
+        with mock.patch.object(generate_gw, "main") as cache, \
+                mock.patch.object(run_all, "run_stage") as plot, \
+                mock.patch.multiple(run_all, RUN_PAPER_PLOTS=True, RUN_WIP_PLOTS=True,
+                                    RUN_INDIVIDUAL_PLOTS=True, RUN_INDIVIDUAL_EXTRAS=True,
+                                    INDIVIDUAL_CASES=("all",)):
+            calls.attach_mock(cache, "cache")
+            calls.attach_mock(plot, "plot")
+            run_all.main()
+        self.assertEqual(calls.mock_calls, [
+            mock.call.cache(),
+            mock.call.plot("paper plots", "run_paper.py"),
+            mock.call.plot("combined WIP plots", "run_wip.py"),
+            mock.call.plot("individual plots", "wip_plots/run_individual.py", "all", "--extra"),
+        ])
+
+    def test_cache_failure_stops_before_plotting(self):
+        import generate_gw
+        import run_all
+
+        with mock.patch.object(generate_gw, "main", side_effect=SystemExit(1)), \
+                mock.patch.object(run_all, "run_stage") as plot, \
+                self.assertRaises(SystemExit):
+            run_all.main()
+        plot.assert_not_called()
+
+
 class RestartAndCacheTests(unittest.TestCase):
+    def test_standalone_restmass_preserves_former_panel_definition(self):
+        import matplotlib.pyplot as plt
+        from wip_plots import restmass
+
+        sim = SimpleNamespace(config=SimpleNamespace(name="A1", Pc=2.),
+                              M0MADM_t=np.array([0., 2., 4.]),
+                              restmass=np.array([.03, .029, .028]),
+                              color="b", linestyle="-", legend_name="A1")
+        fig = restmass.plot([sim])
+        try:
+            np.testing.assert_allclose(fig.axes[0].lines[0].get_ydata(), sim.restmass/.03)
+            self.assertEqual(fig.axes[0].get_ylabel(), r"$M_0/M_0(0)$")
+            self.assertEqual(restmass.OUTPUT_FILENAME, "wip/restmass.png")
+        finally:
+            plt.close(fig)
+
+    def test_shibata_comparison_uses_shared_style_and_unchanged_data(self):
+        import matplotlib.pyplot as plt
+        from wip_plots.disk_compactness_comparison import (
+            BH_MASS_CODE, BH_MASS_REFERENCE_MSUN, OUR_DISKS, REFERENCE,
+            TYPE_STYLES, plot,
+        )
+
+        with plt.rc_context(style.PAPER_PLOT_STYLE):
+            for include_ours in (False, True):
+                fig = plot(include_ours)
+                try:
+                    ax = fig.axes[0]
+                    self.assertEqual(ax.xaxis.label.get_fontsize(), style.PAPER_AXIS_LABEL_SIZE)
+                    self.assertEqual(ax.yaxis.label.get_fontsize(), style.PAPER_AXIS_LABEL_SIZE)
+                    self.assertEqual(ax.xaxis.label.get_usetex(), style.USE_LATEX_TEXT)
+                    for points, kind in zip(ax.collections, TYPE_STYLES):
+                        expected = [[row[1], row[2] / BH_MASS_REFERENCE_MSUN]
+                                    for row in REFERENCE if row[3] == kind]
+                        np.testing.assert_allclose(points.get_offsets(), expected)
+                    if include_ours:
+                        for points, (_, radius, mass) in zip(ax.collections[3:], OUR_DISKS):
+                            np.testing.assert_allclose(points.get_offsets(),
+                                                       [[radius / BH_MASS_CODE, mass / BH_MASS_CODE]])
+                        legend = ax.get_legend()
+                        self.assertTrue(legend.get_frame_on())
+                        self.assertEqual(legend.get_texts()[0].get_fontsize(), style.PAPER_LEGEND_SIZE)
+                    for text in ax.texts:
+                        self.assertEqual(text.get_fontsize(), style.PAPER_FONT_SIZE)
+                        self.assertEqual(text.get_usetex(), style.USE_LATEX_TEXT)
+                finally:
+                    plt.close(fig)
+
+    def test_initial_profiles_use_adm_radius_and_labels(self):
+        import matplotlib.pyplot as plt
+        from paper_plots.initial_data_all import plot
+
+        sim = SimpleNamespace(
+            config=SimpleNamespace(name="A1", q=1.99, mlittle=0.05, gw_madm=0.1),
+            emdg_x=np.array([0.1, 0.2, 0.4]),
+            ell_x=np.array([0.1, 0.2, 0.4]),
+            rho_initial=np.array([1.0, 2.0, 1.0]),
+            ell=np.array([1.0, 1.1, 1.2]),
+            legend_name="A1", linestyle="-", color="k",
+        )
+        fig = plot([sim])
+        try:
+            for ax in fig.axes:
+                np.testing.assert_allclose(ax.lines[0].get_xdata(), [1., 2., 4.])
+            self.assertEqual(fig.axes[1].get_xlabel(), r"$r/M$")
+            self.assertEqual(fig.axes[1].texts[0].get_text(), r"$r^{0.01}$")
+            self.assertAlmostEqual(fig.axes[1].lines[1].get_xdata()[0], 2.0)
+            self.assertEqual(fig.axes[0].yaxis.label.get_position()[0],
+                             fig.axes[1].yaxis.label.get_position()[0])
+        finally:
+            plt.close(fig)
+
     def test_disk_mass_normalizations_use_code_mass_not_ratio(self):
         from dataclasses import replace
         from helpers.gw_units import (

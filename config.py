@@ -51,7 +51,7 @@ TIME_CODE_UNIT_MASS_MSUN = 1.0
 GW_NORMALIZE_BY_M = True
 GW_TIME_SCALE = "M_BH"  # "M_BH", "M_ADM", "P_c", or "code"
 
-RUN_GW_CACHE = False
+RUN_GW_CACHE = True
 RUN_PAPER_PLOTS = True
 RUN_WIP_PLOTS = True
 RUN_INDIVIDUAL_PLOTS = True
@@ -67,40 +67,7 @@ GW_STOP_ON_ERROR = False
 GW_IFORT_MODULE = "intel/19.0.5.281"
 
 
-# Detectability analysis (separate from ordinary time-domain waveforms).
-DETECTABILITY_SIM_NAMES = ("A1", "A2", "A3", "B1", "B2", "B3")
-# r=120 is the first extraction sphere retained as a wave-zone systematic;
-# r=170 is the outermost valid common sphere and is the central value.
-DETECTABILITY_FIRST_WAVEZONE_PARFILE_INDEX = GW_FIRST_WAVEZONE_PARFILE_INDEX
-DETECTABILITY_OUTER_PARFILE_INDEX = GW_OUTERMOST_PARFILE_INDEX
-DETECTABILITY_PSI4_PARFILE_INDEX = DETECTABILITY_OUTER_PARFILE_INDEX
-DETECTABILITY_MODES = tuple((ell, m) for ell in (2, 3) for m in range(ell, -ell - 1, -1))
-# Wessel et al. remove the first 1000 M_BH to suppress initial-data relaxation.
-DETECTABILITY_TRANSIENT_CUTOFF_MBH = 1000.0
-# The collaborator's direct-Psi4 implementation uses a Tukey alpha of 0.05.
-DETECTABILITY_TAPER_ALPHA = 0.05
-DETECTABILITY_ZERO_PAD_FACTOR = 2.0
-# Do not interpret frequencies represented by fewer than three retained cycles.
-DETECTABILITY_LOW_FREQUENCY_CYCLES = 3.0
-DETECTABILITY_THETA_NODES = 24
-DETECTABILITY_PHI_NODES = 48
-DETECTABILITY_SOURCE_AVERAGING = "mean"
-
-# Wessel et al. finite-signal comparison points: (source BH mass, distance).
-DETECTABILITY_TARGETS = ((10.0, 150.0), (1.0e3, 4.0e4), (2.0e5, 7.0e3))
-DETECTABILITY_SNR_THRESHOLD = 8.0
-DETECTABILITY_HORIZON_MASS_RANGE_MSUN = (1.0, 1.0e7)
-DETECTABILITY_HORIZON_MASS_SAMPLES = 44
-DETECTABILITY_HORIZON_REDSHIFT_MAX = 10.0
-DETECTABILITY_HORIZON_REDSHIFT_SAMPLES = 64
-DETECTABILITY_HORIZON_SPECTRAL_BINS = 2048
-
-# Plot-selection knobs.
-DETECTABILITY_PLOT_CHARACTERISTIC_STRAIN = True
-DETECTABILITY_PLOT_HORIZON = True
-DETECTABILITY_PLOT_METHOD_COMPARISON = True
-DETECTABILITY_PLOT_RADIUS_COMPARISON = True
-DETECTABILITY_ACTIVE_DETECTORS = ("ligo", "ce", "decigo", "lisa")
+# Detectability-specific scientific choices live at the top of gw_detectability.py.
 
 
 @dataclass(frozen=True)
@@ -111,12 +78,12 @@ class DiskSimConfig:
     q: float
     gamma: float
     kappa: float
-    # Initial M0_disk / M_BH,0 from restmass.txt; dimensionless, not code mass.
+    # Initial M0_disk / M_BH,0 from notes/reference/restmass.txt; dimensionless.
     disk_to_bh_mass_ratio: float
     Pc: float
     # Initial central-BH mass scale in the simulation's geometrized code units.
-    # Keep this distinct from gw_madm, the total ADM mass used only by the
-    # existing FFI retarded-time reconstruction and flux calculation.
+    # Keep this distinct from gw_madm, the total ADM mass also used when
+    # normalizing paper coordinates by M.
     mlittle: float = 0.05
     gw_omega_orbital: float | None = None
     gw_madm: float | None = None

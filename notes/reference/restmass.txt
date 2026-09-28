@@ -1,0 +1,17 @@
+# Values are initial disk-rest-mass / initial BH-mass ratios (dimensionless).
+# To recover code mass, multiply by the initial BH mass in code units (0.05).
+# The A1-B3 ratios agree with t=0 bhns.don M0/0.05 within about 1-3%.
+# Preserve supplied values; they are not identical to evolution-grid integrals.
+bhtD2.0_fAJS0.80_000_000_q2.00_l4.00_r0.40_gamma4o3_sol_01_v2  1.8E-07
+
+
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_01 (A1)  1.87E-02
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_05 (A2)  1.98E-01
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_07 (A3)   6.02E-01
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_15 (A4)  3.87E+00
+
+
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_28 (B1)  1.07E-02
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_32 (B2)  1.21E-01
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_35 (B3)  6.65E-01
+bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_43 (B4)  3.64E+00

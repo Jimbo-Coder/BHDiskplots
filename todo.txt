@@ -1,0 +1,26 @@
+GW section write
+   describe results primarily. Signal look like, correspondance to the disk behavior.
+   Why waves peak when PPI saturates
+   Mention angular momentum transport, terminates PPI growth.
+
+GW Plots
+   Add ET sensitivity curve, remove B cases, detectability horizon on one plot following wessel.
+
+Try fitting decay rate to the integrated horizon flux instead of rest mass change.
+
+Check if integrated flux across horizon agrees with anything else, like M_BH.
+
+Implemented and verified locally/on Anvil, 2026-09-21:
+- ET 10 km triangular-network sensitivity, A1-A3 only, common horizon chart.
+- Flux-driven remaining-mass fit, selectable against the original volume mass.
+- Direct-Psi4 time-on strain/horizon charts without changing the off baseline.
+- Full-history and GW-fit-interval flux / disk-loss / BH-mass comparisons.
+  Late BH gain / accreted rest mass: A1 0.220, A2 0.909, A3 0.905.
+  These are different physical quantities; this is not a conservation identity.
+- A1 tail remains conditional; A2/A3 waveform fits still do not support tails.
+- All 99 tests pass on both machines; actual Anvil plots inspected. The off
+  signal arrays remain identical to the pre-change baseline for A1-A3.
+
+Writing items at the top remain author-facing prompts. Explain PPI/transport
+as an interpretation supported by the matter-mode and angular-momentum data,
+not as something proved by the extrapolated waveform. See notes/KNOWLEDGE.md.

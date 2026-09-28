@@ -9,19 +9,39 @@ Plotting and GW post-processing for the BHDisk simulations on Anvil.
   of the paper workflow.
 - `config.py`: simulation metadata, input roots, shared units, and run settings.
 - `gw.py`: extraction-file reading, restart merging, FFI, and waveform caches.
-- `helpers/`: scalar/2D readers, shared units/style, and separate detectability physics.
+- `helpers/`: scalar/2D readers and shared units/style.
+- `gw_detectability.py`: the seven-step direct-Psi4 detectability analysis and its settings.
 - `data/initial_profiles/`: small initial-profile inputs used by the paper plot.
 - `cache/2d_indices/`: persistent text indices for the large 2D ASCII sources.
 - `generate_gw.py`: the sole standard entry point for the reusable GW
   time-series cache.
 - `psi4_hlm_ref/`: preserved Fortran regression reference and supporting scripts.
-- `wip_plots/detectability_ref/`: collaborator-supplied historical method reference.
+- `notes/`: human feedback, running knowledge/work logs, and source references.
 - `run_logs/`: ignored nohup logs and PID files; runtime state belongs here,
   never beside the top-level workflow scripts.
 
 Plot-specific scientific and presentation choices remain near the top of each
 plot file. Shared helpers are used only where several plots require exactly the
 same behavior.
+
+## Notes and Working Copies
+
+Use this checkout, not the retired dated sync folders. The canonical paths are
+`/Users/mrizzo/phys_research/AnvilSyncing/BHDiskplots` on the Mac and
+`/anvil/projects/x-mca99s008/maxwork/BHDiskplots` on Anvil.
+
+- [Human GW method proposal](notes/human_gw_method.md)
+- [Current work and unresolved decisions](notes/WORKING.md)
+- [Established conventions and dated numerical evidence](notes/KNOWLEDGE.md)
+
+Keep editing the `human*` files in `notes/`; they are preserved verbatim when
+syncing. Completed small plot notes are recorded in `WORKING.md` and removed;
+the larger GW method note remains for collaboration.
+Before local work, compare and pull Anvil's uncommitted edits as well
+as checking the Git commit. Before syncing back, check for new Anvil changes
+again. Never mirror `.git/`, environments, generated outputs, logs or the local
+temporary review products between machines, and do not use a broad
+`rsync --delete` on the repo.
 
 ## Quick Start on Anvil
 
@@ -50,15 +70,20 @@ echo $! > run_logs/run_all.pid
 ```
 
 The workflow block in `config.py` controls the cache, paper, WIP, and individual
-stages. With the defaults, the GW cache is left alone and every figure is
-rewritten. When the cache stage is enabled, existing products are rebuilt so
-newly appended Psi4 data are included.
+stages. By default, the GW cache is rebuilt first, including newly appended
+Psi4 data, followed by paper, WIP, and all individual plots with extras.
+Plots only read the cache; they do not repeatedly regenerate it. A failed
+cache-generation stage stops the workflow before plotting. Set `RUN_GW_CACHE`
+to `False` only for an intentional plot-only rerun.
 
 Run selected paper plots by short name:
 
 ```bash
 ./run_paper.py modes phase rhomax
 ```
+
+The exploratory C3–C5 density-mode comparison is `./run_wip.py modes_345`;
+it writes `figures/wip/modes_345.png` with the same $|C_m|/C_0$ normalization.
 
 Every plot remains directly runnable, for example:
 
@@ -74,6 +99,56 @@ identical across figures. For example, the six-case polarization panel is:
 ```bash
 ./run_wip.py strain_panel
 ```
+
+For Shibata Fig. 4-style **face-on time-domain strain** at 100 Mpc:
+
+```bash
+./run_wip.py strain_observer
+```
+
+`wip_plots/gw_strain_observer.py` contains its source mass (default 50 solar
+masses), distance, radius, mode subset, initial-time cut, and layout settings.
+It makes `figures/gw/strain_observer_A.png` and `strain_observer_B.png`, with
+one case per row and both polarizations. These reuse the normal FFI cache;
+they do not invert the detectability spectrum. At the rotation axis only
+`m=2` contributes, so the default `(2,+/-1),(2,+/-2)` subset reduces to `(2,2)`
+times `sqrt(5/(4*pi))`. Times are observer seconds relative to each retained
+amplitude peak; the existing cosmology adds a 2.2% redshift correction at
+100 Mpc (optional). No new window, integration cutoff or extrapolation is
+applied. The first 1000 BH-mass units are excluded, as for detectability.
+Our cached orbital-frequency FFI cutoff is retained, not the paper's 8 Hz;
+its observer-frame value is printed for each case when making these figures.
+
+The Shibata Fig. 5 recreation and BHDisk comparison are also included in the
+WIP/full workflow. Run just those with `./run_wip.py shibata`; PNG and PDF
+outputs are `figures/wip/disk_compactness_reference.*` and
+`figures/wip/disk_compactness_comparison.*`.
+
+The Wessel-style accretion check is `./run_wip.py accretion`, also included in
+WIP/full runs. `wip_plots/accretion.py` owns the two plots and its BH-mass knob.
+It saves `figures/wip/accretion_rate.png` (linear, A/B separated, scaled to a
+10-solar-mass BH) and `accretion_mass_budget.png` (measured outside-AH mass loss
+versus integrated inward flux). Time stays relative to initial data, not an
+inferred saturation time. Missing-horizon-pattern flux samples are gaps, not
+interpolated values. The paper M0dot plot and GW extrapolation are unchanged.
+
+The initial Toomre diagnostic is `./run_wip.py toomre`, also included in the
+WIP/full workflow. It saves `figures/wip/toomre.png`. Calculation and useful
+knobs live together in `wip_plots/toomre.py`; it reads the matching COCAL
+`emdg_xz*.txt`, `omeg_xp*.txt`, and `peos_parameter_output.dat` beside the
+existing equatorial initial profiles. No HDF5 or evolution scan is needed.
+It plots **Newtonian** `Q_N` against cylindrical `R/M_ADM`: coordinate column
+density, polytropic adiabatic sound speed, and the measured rotation-gradient
+epicycle. The `Q=1` reference is not a GR/thick-disk or global-PPI criterion.
+The same command also saves `toomre_romeo.png` and `toomre_meidt.png` in
+`figures/wip/`, each comparing the original Q with one alternative. Romeo's
+single-gas thickness correction defaults to isotropic support (`T=1.5`;
+`ROMEO_SIGMA_Z_OVER_SIGMA_R` controls the assumption). Meidt's separate 3D
+midplane diagnostic uses `kappa^2/(4 pi rho_mid)`, not surface density.
+These are exploratory Newtonian comparisons, not validated GR stability tests;
+the original `toomre.png` is unchanged. References are beside the calculation.
+`toomre_cases.png` puts all three methods on each case's axes in one six-panel
+figure, with a shared method legend; it does not create per-case files.
 
 Generated figures are not tracked by Git. The `figures/` root contains only
 paper figures with stable LaTeX-facing names (`modes.png`, `phase.png`,
@@ -175,16 +250,98 @@ The difference plots deliberately distinguish `h(Psi4_disk)-h(Psi4_ML)` from
 `h(Psi4_disk-Psi4_ML)`. Both are retained for comparison, over shared retarded
 times without extrapolation. All previous figure filenames are preserved.
 
-Detectability plots remain separate in `wip_plots/`; numerical transforms,
-detector response, and SNR calculations live in `helpers/gw_detectability.py`.
-Their settings are in the detectability block of `config.py`. Direct-Psi4 transforms,
-source averaging, physical scaling, windowing, and detector conventions are
-documented and tested independently of ordinary waveform plots. It consumes
-the cached, uniformly sampled `rpsi4_uniform.dat` when available, so the
-retarded-time correction and interpolation are shared without routing the
-detectability calculation through time-domain strain.
+Detectability has two files to edit:
+
+- `gw_detectability.py`: scientific settings at the top, followed by `analyze()`
+  and the seven-step calculation: read cached modes, window/FFT, orientation
+  average, characteristic strain, detector noise, physical scaling, SNR/horizons.
+  Each scientific choice has its rationale and measured limitation beside it;
+  the sensitivity table is in `notes/KNOWLEDGE.md`.
+- `wip_plots/gw_detectability_all.py`: combined and individual figures, output
+  selection, labels and layout. Run `./run_wip.py detectability`; individual
+  numerical-choice checks remain part of `./run_individual.py A1 --extra`.
+
+The default uses the human note's four modes `(2,2), (2,1), (2,-2), (2,-1)`.
+Set `MODES = "all"` in `gw_detectability.py` for every cached mode (21 modes,
+ell=2 through 4), or supply another tuple/list of pairs. Both choices use the
+same calculation and figure filenames; rerunning replaces the selected outputs.
+Mean amplitude and RMS are distinct selectable source-orientation averages.
+Window/cut choices are explicit, not implied by Moore's strain definitions.
+The uniformly sampled `rpsi4_uniform.dat` and its own retarded-time column are
+required; rebuild missing caches with `generate_gw.py`. This shares the prepared
+Psi4 data without routing detectability through integrated time-domain strain.
+Standard waveform plots and their FFI calculation are unchanged.
+The CE/DECIGO/LISA examples share one characteristic-strain axis and fixed
+source scales: 50 Msun / 10 Mpc, 1000 Msun / 500 Mpc, 100000 Msun / 50 Mpc.
+Edit `EXAMPLE_TARGETS` at the top of the analysis file. They represent stellar,
+intermediate and massive BH scales, with round distances near the sensitivity
+range of our signals, not optimized or automatically retuned thresholds.
+All six cases share each source pair. The separate luminosity-distance plot
+`figures/gw/gw_detectability_horizon.png` shows SNR=8 reach versus source-frame
+BH mass. Source annotations use LaTeX scientific notation; redshift is still
+computed from the same cosmology but is not redundantly printed beside D_L.
+Plot limits only trim the displayed range, never the SNR integration.
+The separate `gw_detectability_shibata.png` uses a fixed 50 Msun BH and 100 Mpc
+luminosity distance, with redshift from the same cosmology. This matches the
+reference source scale in Shibata et al. (2021), not GW190521's inferred
+parameters. It retains our selected modes and orientation average; no reference
+waveform is overlaid. `SHIBATA_BH_MASS_MSUN` and `SHIBATA_DISTANCE_MPC` control
+this comparison; `PLOT_SHIBATA_COMPARISON` enables it in the plotting file.
 The colleague-supplied historical implementation is retained verbatim under
-`wip_plots/detectability_ref/`; it is reference material, not an executable workflow.
+`notes/reference/collaborator_detectability.py.txt`; it is reference material,
+not an executable workflow.
+
+The **experimental** Wessel disk-mass-driven `(2,2)` continuation has individual
+diagnostics via `./run_wip.py temporal_trial`. These individual diagnostics are
+excluded from default/full runs. `TAIL_*` settings in `gw_detectability.py` control the fit, held-out check,
+join and termination. Each case gets `gw_temporal_fit.png`: measured disk mass,
+strain amplitude and unwrapped phase against their fits over the fitted interval.
+Phase has an arbitrary constant removed from both data and fit. Matter-mode
+evolution, fit-window sensitivity and fit scores remain in the JSON report. Passing cases and
+explicit `TAIL_REVIEW_CASES` get `gw_temporal_on_off.png` (spectral comparison)
+and `gw_temporal_transition.png` (waveform and amplitude at the data/tail join).
+The fit figure contains no future data. The transition figure separates the
+unmodified simulation, the last-orbit blend and the future model; the measured
+curve remains visible throughout the blend. Plots contain no pass/fail verdicts.
+Review cases retain their waveform-fit warnings and **conditional** status in the report. Mass-decay
+and sampling checks are never waived. Numerical results are in
+`figures/gw/temporal_trial.json`. This compares cached FFI strain with/without
+a modeled tail, not direct-Psi4 versus FFI. No production figure is overwritten.
+The September 15 strict test rejected all six cases. A1 now has a conditional
+example: the continuation is strongly fit-window dependent. See KNOWLEDGE.md
+before interpreting it. Passing the numerical criteria would still not prove that
+the disk structure persists throughout a long extrapolation.
+The three-rescaling `gw_detectability_characteristic_strain.png` remains the
+measured-only, multi-mode direct-Psi4 result. Detectability now defaults to
+A1-A3 and includes the ET 10 km triangular-network curve alongside A+, CE,
+DECIGO and LISA. Change `SIM_NAMES` / `ACTIVE_DETECTORS` in `gw_detectability.py`.
+
+The same command also writes `gw_detectability_characteristic_strain_time_on.png`
+and `gw_detectability_horizon_time_on.png`. `PLOT_TIME_COMPARISON` at the top of
+the plot script controls these additional figures. Both use direct-Psi4 FFTs:
+only the (2,2) termination is replaced with the analytic second derivative of
+the fitted strain model. The measured baseline, source rescalings, frequency
+floor and other measured modes are unchanged. A1 is explicitly conditional;
+A2/A3 remain measured only because their waveform fits fail the existing checks.
+The JSON `gw_detectability_time_comparison.json` records fits and off/on SNRs.
+The actual Psi4 join is shown in `A1/gw_temporal_psi4_transition.png`.
+
+`TAIL_MASS_SOURCE="horizon_flux"` tests the requested remaining-mass proxy:
+initial outside-AH M0 minus the recorded cumulative inward rest-mass flux.
+Set it to `"outside_mass"` for the previous volume-mass fit. The flux proxy
+assumes no other losses/sources; it does not fix the poor waveform fits or
+prove the disk will persist for the modeled duration. It is a documented
+variation on Wessel's mass-driven model, not their exact measured-mass method.
+`run_wip.py accretion` now compares disk mass loss, recorded AH flux and BH
+mass change, with an additional A-case view over the exact GW fit intervals.
+BH gravitational mass and accreted rest mass need not be identical.
+
+`./run_wip.py restmass` restores the former tripleM rest-mass panel as
+`figures/wip/restmass.png`, also included in default WIP/full nonmovie runs.
+It shows total conserved rest mass from `bhns.don` column 2, normalized to its
+first sample (normally t=0), using the shared time axis and A/B/ML styling.
+It includes matter inside the AH; it is not the outside-AH mass used in the
+temporal fit. The paper tripleM figure is unchanged.
 
 ## Plot Promotion
 

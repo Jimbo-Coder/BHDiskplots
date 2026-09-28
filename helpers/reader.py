@@ -62,7 +62,10 @@ class DiskSim:
             return True
         self.modepath, self.modedata, self.modes_t, _ = self.loaddata("bhns-dens_mode.con", None)
         self.modes_t = self.modedata[:, 0]
-        modes = 3
+        ncols = self.modedata.shape[1]
+        if ncols < 6 or ncols % 2:
+            raise ValueError(f"{self.modepath}: expected time, C0, and complex mode pairs")
+        modes = ncols // 2
         real_index = np.concatenate(([1], np.arange(2, 2 * modes, 2)))
         imag_index = np.arange(3, 2 * modes + 1, 2)
         self.modes_re = self.modedata[:, real_index]
