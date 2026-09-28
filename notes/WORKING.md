@@ -16,7 +16,9 @@ Last updated: 2026-09-28
     interferometer's sky- and polarization-angle-averaged response is
     <|F+h+ + Fx hx|^2> = (2/5) h_res^2, so S_eff = (5/2) S_n (ASD x sqrt(5/2)).
     Wessel footnote 4's sqrt(10) multiplies where its own stated aim (a
-    sky-position-only curve) requires dividing, and halves every SNR. The
+    sky-position-only curve) requires dividing. For the same raw instrument
+    PSD and Eq. (8) waveform, its stated curve would halve the SNR; Wessel's
+    numerical SNRs have not been independently reproduced. The
     SciRDv1 LISA table is the single-channel 20/3 curve (exactly 2x Robson+2019
     at low f); now two channels and h_res give 0.5 x sqrt(PSD). A quadrature
     test of the actual F+/Fx response and a Robson comparison pin both.
@@ -612,8 +614,9 @@ eliminated.
   maintained preprocessing cache, removes `t_ret<0`, and only then applies the
   `1000 M_BH` transient cut. Legacy caches retain the previous fallback.
 - Uniform resampling now precedes the Tukey window.
-- The Wessel detector-response prescription is encoded once and reused by the
-  plotted noise and SNR/horizon calculation.
+- The directly averaged detector response is encoded once and reused by the
+  plotted noise and SNR/horizon calculation; the Sep 28 correction supersedes
+  Wessel footnote 4's rescaling (see the current-work entry above).
 - The standard `h_c=2 f |h_tilde|` and one-sided matched-filter SNR forms are
   retained, with explicit redshifted-mass and luminosity-distance scaling.
 

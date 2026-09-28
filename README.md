@@ -88,7 +88,8 @@ is tracked.
   taper, source-orientation mean of the Wessel Eq. (8) amplitude, SNR=8.
   Detector response gives the exact sky- and polarization-averaged SNR
   (A+/CE/DECIGO x sqrt(5/2); ET and LISA in `detector_curves/README.md`). This
-  deliberately differs from Wessel footnote 4, which halves SNRs.
+  differs from Wessel footnote 4: its stated curve factor would halve an SNR
+  for the same raw instrument ASD and Eq. (8) waveform.
 - Difference plots keep `h(Psi4_disk) - h(Psi4_ML)` and `h(Psi4_disk - Psi4_ML)`
   distinct.
 

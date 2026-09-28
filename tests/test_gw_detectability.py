@@ -6,6 +6,7 @@ from unittest import mock
 from types import SimpleNamespace
 
 import numpy as np
+from scipy.signal.windows import tukey as scipy_tukey
 import config
 import gw_detectability as analysis
 
@@ -490,6 +491,92 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
             time, modes = analysis.read_rpsi4_modes(case, 8)
             np.testing.assert_array_equal(time, np.arange(9.0))
             self.assertTrue(all(np.all(values != 0) for values in modes.values()))
+
+    def test_analytic_mode_from_cache_through_observed_snr(self):
+        # q_22 = q0 exp(2 pi i nu0 tau), so M_BH*rPsi4 = q_22''.
+        # Only this mode is present in a real-format 21-mode cache. The oracle
+        # uses the analytic harmonic, direct DFT sums, and a flat raw PSD.
+        case = config.all_sim_configs(["A1"])[0]
+        retained = 1048
+        tau = np.arange(-16, 2048, dtype=float)
+        nu0 = 32.0 / retained
+        q0 = 0.01
+        omega0 = 2.0 * np.pi * nu0
+        rpsi4 = -(omega0**2 * q0 / case.mlittle) * np.exp(1j * omega0 * tau)
+        table = np.zeros((tau.size, 43))
+        table[:, 0] = case.mlittle * tau
+        table[:, 1], table[:, 2] = rpsi4.real, rpsi4.imag
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("gw.GW_WORK_ROOT", Path(tmp)):
+            directory = Path(tmp) / "A1_psi49"
+            directory.mkdir()
+            np.savetxt(directory / "rpsi4_uniform.dat", table)
+            (directory / "strain_cache.json").write_text(json.dumps({
+                "backend": "python", "source_label": "9", "madm": case.gw_madm,
+            }))
+            sources, _ = analysis.source_spectra(["A1"])
+
+        self.assertEqual(tuple(sources), ("A1",))
+        source = sources["A1"]
+        self.assertEqual(source.info.samples, retained)
+        self.assertEqual(source.spectrum.averaging, "source-direction mean")
+        self.assertEqual(source.info.modes, ((2, -2), (2, -1), (2, 1), (2, 2)))
+
+        # The arrival and transient cuts leave tau=1000,...,2047. The
+        # symmetric padding doubles the FFT grid, without changing duration.
+        nu = np.arange(1, retained) / (2.0 * retained)
+        nu = nu[nu >= 3.0 / (retained - 1)]
+        np.testing.assert_allclose(source.spectrum.frequency, nu, rtol=1e-12)
+        relative_tau = np.arange(retained, dtype=float)
+        window = scipy_tukey(retained, alpha=0.05, sym=True)
+        positive = np.exp(-2j * np.pi * (nu[:, None] - nu0) * relative_tau) @ window
+        negative = np.exp(-2j * np.pi * (nu[:, None] + nu0) * relative_tau) @ window
+        # |_{-2}Y_22| = sqrt(5/(64 pi)) (1+cos(theta))^2; its solid-angle
+        # mean is 4/3 times sqrt(5/(64 pi)). The plus/cross norm is phase
+        # independent, including the finite-window negative-frequency wing.
+        mean_harmonic = (4.0 / 3.0) * np.sqrt(5.0 / (64.0 * np.pi))
+        expected_q_ft = (
+            mean_harmonic * omega0**2 * q0
+            * np.sqrt(np.abs(positive)**2 + np.abs(negative)**2)
+            / (2.0 * (2.0 * np.pi * nu)**2)
+        )
+        np.testing.assert_allclose(source.spectrum.strain_ft, expected_q_ft,
+                                   rtol=1e-8, atol=1e-12 * expected_q_ft.max())
+
+        mass_msun, distance_mpc, redshift = 50.0, 100.0, 0.1
+        raw_asd = 1.0e-23
+        curves = {"ligo": DetectorCurve(np.array([5.0, 2500.0]),
+                                        np.array([raw_asd, raw_asd]))}
+        with mock.patch.object(analysis, "ACTIVE_DETECTORS", ("ligo",)):
+            target = analysis.observed_target({"A1": source.spectrum},
+                                              mass_msun, distance_mpc, redshift, curves)
+
+        # Independent SI conversion and the <F_+^2+F_x^2> = 2/5 response
+        # for the polarization norm used above.
+        seconds_per_solar_mass = 4.92549095e-6
+        meters_per_solar_mass = 1476.6250385
+        meters_per_mpc = 3.085677581491367e22
+        observer_time = mass_msun * (1.0 + redshift) * seconds_per_solar_mass
+        amplitude = mass_msun * (1.0 + redshift) * meters_per_solar_mass / (
+            distance_mpc * meters_per_mpc
+        )
+        observed_frequency = nu / observer_time
+        observed_ft = expected_q_ft * amplitude * observer_time
+        self.assertGreater(observed_frequency.min(), 5.0)
+        self.assertLess(observed_frequency.max(), 2500.0)
+        frequency, characteristic = target.strain["A1"]
+        np.testing.assert_allclose(frequency, observed_frequency, rtol=1e-12)
+        np.testing.assert_allclose(characteristic, 2.0 * observed_frequency * observed_ft,
+                                   rtol=1e-8, atol=1e-12 * characteristic.max())
+        df = np.diff(observed_frequency)
+        power_integral = np.sum(
+            0.5 * (observed_ft[:-1]**2 + observed_ft[1:]**2) * df
+        )
+        expected_snr = np.sqrt(
+            (8.0 / 5.0) * power_integral / raw_asd**2
+        )
+        self.assertAlmostEqual(target.snr["A1"]["ligo"], expected_snr,
+                               delta=1e-8 * expected_snr)
 
     def test_moore_hc_noise_snr_identity(self):
         f = np.geomspace(1, 100, 20000)

@@ -86,7 +86,8 @@ LOW_FREQUENCY_CYCLES = 3.0
 # 5. Noise model and integration support in observed Hz, NOT source cutoffs.
 # Input quantities are explicit. With Eq. 8 h_res, the sky/polarization-averaged
 # response of a right-angle interferometer is (2/5) h_res^2: instrument ASD
-# times sqrt(5/2). NOT Wessel footnote 4's sqrt(10), which halves every SNR.
+# times sqrt(5/2). Wessel footnote 4 states sqrt(10) for a raw instrument ASD;
+# with the same Eq. (8) waveform, that curve would halve the computed SNR.
 # Same effective noise for plots and SNR; see effective_detector_asd.
 ACTIVE_DETECTORS = ("ligo", "et", "ce", "decigo", "lisa")
 DETECTOR_CURVE_DIR = config.REPOSITORY_ROOT / "detector_curves"
@@ -757,8 +758,9 @@ def effective_detector_asd(detector: str, frequency, curves) -> np.ndarray:
     polarization angle gives <F+^2> = <Fx^2> = 1/5 for a right-angle
     interferometer and <F+ Fx> = 0, so <|F+h+ + Fx hx|^2> = (2/5) h_res^2 with
     Eq. (8) h_res^2 = (|h+|^2+|hx|^2)/2. Hence S_eff = (5/2) S_instrument.
-    Wessel footnote 4 instead multiplies the 5*S_n curve by 2 (sqrt(10) in
-    ASD), which halves every SNR; tests pin the averaged response directly.
+    Wessel footnote 4 instead describes multiplying the 5*S_n curve by 2
+    (sqrt(10) in ASD). For the same raw PSD and Eq. (8) waveform, that stated
+    curve would halve the computed SNR. Tests pin our averaged response directly.
     """
     if detector == "decigo":
         return np.sqrt(2.5) * _decigo_instrument_asd(frequency)
