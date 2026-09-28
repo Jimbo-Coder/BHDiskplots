@@ -4,6 +4,13 @@ Last updated: 2026-09-28
 
 ## Current Work
 
+- Sep28 full non-movie rerun at commit 485e76a (corrected detector response):
+  login00, PID 1124179, 12:29-12:38 EDT, run_logs/nonmovie_20260928_122954.log
+  (.pid/.info/.exit/_tests.log). Preflight tests passed; GW cache processed=75,
+  failures=0; paper + WIP + individual all --extra; 143 figures saved, exit 0.
+  Detectability/gw_radiated numbers equal the earlier Sep28 regeneration.
+  The local uncommitted MareNostrum data_roots change was NOT deployed.
+
 - Sep28 audit and corrections:
   - Detector response CORRECTED. With Eq. (8) h_res, a right-angle
     interferometer's sky- and polarization-angle-averaged response is
