@@ -24,6 +24,10 @@ SUPPLEMENTAL_DATA_ROOT = Path(
     "/anvil/projects/x-mca99s008/BHDisk_illinois_maxjamie"
 )
 EXTRA2D_ROOT = SUPPLEMENTAL_DATA_ROOT / "extra2d"
+# Optional persistent scalar archive target for
+# sdcalarsync/sync_scalars_to_anvil.sh. It keeps the source <sim>/ layout;
+# readers skip this root until the archive is populated.
+PERSISTENT_SCALAR_ROOT = SUPPLEMENTAL_DATA_ROOT / "jamiescalars" / "BHdisk_2025"
 
 # Shared GW radius policy. Index 8 is the outermost valid common extraction
 # sphere and is the production default. Index 4 is the first sphere retained
@@ -130,7 +134,10 @@ def initial_data_path_from_run(data_path: Path) -> Path:
 DISK_SIMS = [
     DiskSimConfig(
         name="A1",
-        data_roots=(MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_01",),
+        data_roots=(
+            MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_01",
+            PERSISTENT_SCALAR_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_01",
+        ),
         q=1.99,
         gamma=1.6,
         kappa=1.0,
@@ -141,7 +148,10 @@ DISK_SIMS = [
     ),
     DiskSimConfig(
         name="A2",
-        data_roots=(MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_05",),
+        data_roots=(
+            MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_05",
+            PERSISTENT_SCALAR_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_05",
+        ),
         supplemental_2d_paths=(
             EXTRA2D_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_05/beta100",
         ),
@@ -155,7 +165,10 @@ DISK_SIMS = [
     ),
     DiskSimConfig(
         name="A3",
-        data_roots=(MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_07",),
+        data_roots=(
+            MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_07",
+            PERSISTENT_SCALAR_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_07",
+        ),
         supplemental_2d_paths=(
             EXTRA2D_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.99_l4.10_r0.40_sol_07/beta100",
         ),
@@ -169,7 +182,10 @@ DISK_SIMS = [
     ),
     DiskSimConfig(
         name="B1",
-        data_roots=(MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_28",),
+        data_roots=(
+            MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_28",
+            PERSISTENT_SCALAR_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_28",
+        ),
         supplemental_2d_paths=(
             EXTRA2D_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_28/beta100",
         ),
@@ -183,7 +199,10 @@ DISK_SIMS = [
     ),
     DiskSimConfig(
         name="B2",
-        data_roots=(MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_32",),
+        data_roots=(
+            MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_32",
+            PERSISTENT_SCALAR_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_32",
+        ),
         supplemental_2d_paths=(
             EXTRA2D_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_32/beta100",
         ),
@@ -197,7 +216,10 @@ DISK_SIMS = [
     ),
     DiskSimConfig(
         name="B3",
-        data_roots=(MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_35",),
+        data_roots=(
+            MILTON_DATA_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_35",
+            PERSISTENT_SCALAR_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_35",
+        ),
         supplemental_2d_paths=(
             EXTRA2D_ROOT / "bhtD2.0_K1_g1.60_fAJS0.80_000_000_q1.85_l3.50_r0.40_sol_35/beta100",
         ),
@@ -214,6 +236,7 @@ DISK_SIMS = [
         data_roots=(
             SUPPLEMENTAL_DATA_ROOT / "jamiescalars/bhtD2.0_fAJS0.80_000_000_q2.00_l4.00_r0.40_gamma4o3_sol_01_v2/data",
             MILTON_DATA_ROOT / "massless",
+            PERSISTENT_SCALAR_ROOT / "massless",
         ),
         q=2.00,
         gamma=4/3,

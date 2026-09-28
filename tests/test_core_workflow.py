@@ -16,6 +16,8 @@ from config import (
     GW_OUTERMOST_PARFILE_INDEX,
     GW_WORK_ROOT,
     INITIAL_DATA_ROOT,
+    PERSISTENT_SCALAR_ROOT,
+    MILTON_DATA_ROOT,
     PLOTS_DIR,
     REPOSITORY_ROOT,
     all_sim_configs,
@@ -585,11 +587,20 @@ class RestartAndCacheTests(unittest.TestCase):
 
     def test_massless_restart_is_ordered_oldest_to_newest(self):
         massless = all_sim_configs(["ml"])[0]
-        self.assertEqual(len(massless.data_roots), 2)
+        self.assertEqual(len(massless.data_roots), 3)
         self.assertIn("jamiescalars", str(massless.data_roots[0]))
-        self.assertEqual(massless.data_roots[1].name, "massless")
+        self.assertEqual(massless.data_roots[1], MILTON_DATA_ROOT / "massless")
+        self.assertEqual(massless.data_roots[2], PERSISTENT_SCALAR_ROOT / "massless")
         self.assertNotIn("scratch", str(PLOTS_DIR))
         self.assertNotIn("scratch", str(GW_WORK_ROOT))
+
+    def test_persistent_scalar_archive_is_newest_root(self):
+        for cfg in all_sim_configs():
+            with self.subTest(cfg.name):
+                newest = cfg.data_roots[-1]
+                self.assertEqual(newest.parent, PERSISTENT_SCALAR_ROOT)
+                self.assertEqual(newest.name, cfg.data_roots[-2].name)
+                self.assertNotIn("scratch", str(newest))
 
     def test_repository_owned_paths_are_checkout_relative(self):
         self.assertEqual(PLOTS_DIR, REPOSITORY_ROOT / "figures")
