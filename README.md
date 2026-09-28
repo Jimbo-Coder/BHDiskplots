@@ -87,9 +87,10 @@ is tracked.
 - Detectability: the four l=2, m!=0 modes, 1000 M_BH transient cut, 5% Tukey
   taper, source-orientation mean of the Wessel Eq. (8) amplitude, SNR=8.
   Detector response gives the exact sky- and polarization-averaged SNR
-  (A+/CE/DECIGO x sqrt(5/2); ET and LISA in `detector_curves/README.md`). This
-  differs from Wessel footnote 4: its stated curve factor would halve an SNR
-  for the same raw instrument ASD and Eq. (8) waveform.
+  (A+/CE/DECIGO x sqrt(5/2); ET and LISA in `detector_curves/README.md`).
+  The response factor follows a direct antenna average for this source
+  convention. Wessel footnote 4 uses different sensitivity-curve language;
+  its numerical SNRs have not been reproduced from the published inputs.
 - Difference plots keep `h(Psi4_disk) - h(Psi4_ML)` and `h(Psi4_disk - Psi4_ML)`
   distinct.
 

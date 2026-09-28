@@ -53,12 +53,17 @@ detector-sky- and polarization-angle-averaged SNR^2, with Wessel Eq. (8)
   channels halve that PSD and the `h_res` convention halves it again, so the
   effective ASD is half its square root.
 
-Wessel et al. (2021) footnote 4 instead describes multiplying `5*S_n` by 2
-(`sqrt(10)` in ASD). For the same raw instrument PSD and their Eq. (8)
-amplitude, the direct sky average gives `(5/2)*S_n`: the stated Wessel curve
-is twice as high in ASD and would halve an SNR calculated with it. We have
-not independently reproduced their numerical SNRs or checked every input
-curve's convention. Our results before 2026-09-28 used that rescaling:
+One may instead put the response factor `sqrt(2/5)` on `h_res` and use the
+raw instrument ASD; both choices give the same `h_c/h_n` and SNR. Equivalently,
+the root-sum-square polarization amplitude `sqrt(2)*h_res` pairs with
+`sqrt(5)` times the raw ASD. Wessel et al. (2021) footnote 4 describes a
+`sqrt(2)` change to an already averaged sensitivity curve. Interpreting its
+starting curve as `sqrt(5)` times the same raw instrument ASD would yield a
+`sqrt(10)` curve; paired with Eq. (8) `h_res`, that would halve the SNR from
+our direct antenna average. The published input-curve and numerical-SNR
+conventions have not been independently established, so this conditional
+comparison does not establish an error in Wessel's reported results. Our
+results before 2026-09-28 used `sqrt(10)` with the raw PSD and `h_res`:
 ground-based and DECIGO SNRs were 2x low relative to our current convention,
 LISA 2*sqrt(2)x low (single channel).
 

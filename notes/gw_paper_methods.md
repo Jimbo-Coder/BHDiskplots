@@ -235,20 +235,25 @@ $$
 =\tfrac25\,|\tilde h_{\rm res}|^2 ,
 $$
 
-and $S_{\rm eff}=\tfrac52 S_n$ gives the averaged $\rho^2$ exactly.
+and $S_{\rm eff}=\tfrac52 S_n$ gives the averaged $\rho^2$ exactly. The
+equivalent source-side convention is $\sqrt{2/5}\,h_{\rm res}$ with the raw
+instrument noise; the ratio $h_c/h_n$ and its integral are unchanged. If the
+source uses the root-sum-square polarization amplitude
+$\sqrt2\,h_{\rm res}$, its noise curve must instead be $\sqrt5$ times the
+raw instrument ASD.
 ET's $3/2=\sqrt3\sin60^\circ$ assumes three equal-noise, independent 60-degree
 Michelsons. The LISA SciRDv1 table is one channel with the per-polarization
 average already applied ($20/3$ normalization, twice Robson et al. at low
 frequency); two independent channels and the $h_{\rm res}$ factor each halve it.
-For a raw right-angle instrument ASD, Wessel footnote 4 [R3] describes
-multiplying a $\sqrt5$-averaged curve by $\sqrt2$, giving $\sqrt{10}$ times
-the instrument ASD. Paired with its Eq. (8) $h_{\rm res}$, the direct detector
-average above instead requires $\sqrt{5/2}$ times the instrument ASD. Thus the
-footnote's stated curve is twice as high, and would give half the SNR for the
-same waveform if that curve were also used in the SNR integral. The paper
-does not supply enough implementation detail to establish that every reported
-SNR used this rescaling; its detector-specific input curves also need separate
-convention checks. We do not apply the footnote's rescaling.
+Wessel footnote 4 [R3] describes multiplying an already sky- and
+polarization-averaged sensitivity curve by $\sqrt2$ for its Eq. (8)
+$h_{\rm res}$. If that starting curve means $\sqrt5$ times the same raw
+right-angle instrument ASD, the result is $\sqrt{10}$ times the raw ASD.
+Paired with Eq. (8) $h_{\rm res}$, it would give half the SNR of the direct
+antenna average above. This is a conditional comparison of displayed-curve
+definitions, not a reproduction of Wessel's SNR calculation: its exact input
+curve conventions and numerical pipeline have not been established. We use
+the directly averaged response for our stated input curves.
 
 **In Moore's terms [R2].** Moore's SNR is Eq. (16),
 $\rho^2=4\int|\tilde h|^2/S_n\,df$, where $\tilde h$ is the detector output
@@ -268,15 +273,14 @@ $$
 =4\int\frac{|\tilde h_{\rm res}|^2}{S_n/(2F^2)}\,df .
 $$
 
-The $\sqrt{S_n}/F=\sqrt5\sqrt{S_n}$ curve implied by Moore's stated value
-pairs with the root-sum-square amplitude
+The $\sqrt{S_n}/F=\sqrt5\sqrt{S_n}$ curve obtained by applying Moore's
+stated value to a raw instrument ASD pairs with the root-sum-square amplitude
 $\sqrt{|\tilde h_+|^2+|\tilde h_\times|^2}$. For
 $h_{\rm res}$ it must be divided by $\sqrt2$, giving $\sqrt{5/2}\sqrt{S_n}$.
 For Eq. (8) $h_{\rm res}$, averaging the detector over sky position alone also
-gives the $2/5$ response above. Wessel's stated $\sqrt{10}$ curve would imply
-an effective response of $1/10$ for this amplitude, one quarter of that
-direct average. This comparison concerns the stated curve convention; it is
-not an independent reproduction of Wessel's numerical horizons. The arXiv
+gives the $2/5$ response above. A $\sqrt{10}$ curve applied to the same raw
+ASD would imply an effective response of $1/10$ for this amplitude, one
+quarter of that direct average. The arXiv
 Fig. 10 (accepted-manuscript Fig. 11) was inspected as a vector figure, but its
 plotted heights alone do not identify the exact detector input files or
 establish what entered the separate horizon calculation.
@@ -430,7 +434,7 @@ all transients, memory, or nonradiative contamination have been removed.
   Eqs. (7), (8), (10), footnote 4, Figs. 9 and 11-13. Our direct-Psi4 spectrum,
   full directional quadrature and conditional continuation are not identical
   to their analysis. [Local PDF](reference/Wessel_2021_PRD103_043013_accepted.pdf).
-  Their footnote-4 noise factor ($\sqrt{10}$) is not used; see Sec. 6.
+  Our detector normalization is derived from the antenna average; see Sec. 6.
 - **[R4] Ruiz, Alcubierre, Nunez & Takahashi (2008)**, *Multipole expansions for
   energy and momenta carried by gravitational waves*, GRG 40, 1705:
   [arXiv:0707.4654](https://arxiv.org/abs/0707.4654). Cite for $E$, $J_z$ fluxes.
