@@ -121,7 +121,8 @@ Wessel Fig. 10. Related exports live together in `figures/gw/detectability/` as
 Their generated `_caption.tex` and `_examples.json` companions
 give masses, luminosity distances, redshifts and SNRs. All four examples solve
 the uppermost SNR=8 distances among the plotted cases at fixed source masses:
-(a)/(d) use 50/10 Msun in CE; (b)/(c) use 1000/1e5 Msun in DECIGO/LISA.
+(a)/(b) use 10/50 Msun in CE; (c)/(d) use 1000/1e5 Msun in DECIGO/LISA.
+Letters follow increasing source BH mass in both panels and their companions.
 Exact example masses are included in the reach curves. Conditional-tail figures
 solve their own threshold distances; they are explicitly labelled as conditional.
 

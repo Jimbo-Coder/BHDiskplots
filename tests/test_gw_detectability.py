@@ -355,7 +355,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                                   side_effect=lambda power, detector, mass, distance, curves: power*16/distance):
             targets = analysis.example_targets(spectra, {}, cosmology)
             masses, horizons = analysis.horizon_curves(spectra, {}, cosmology)
-        self.assertEqual([target.mass for target in targets], [50., 1e3, 1e5, 10.])
+        self.assertEqual([target.mass for target in targets], [10., 50., 1e3, 1e5])
         for target in targets:
             self.assertEqual(target.horizon_case, "A3")
             self.assertEqual(target.distance_policy, "best-case threshold")

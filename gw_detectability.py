@@ -106,14 +106,14 @@ DETECTOR_BOUNDS = {
 # 6. Illustrative sources: (detector band, source M_BH/Msun, D_L/Mpc).
 # None selects the largest SNR=8 distance among the plotted cases in that band.
 # All four examples sit on their uppermost detector reach curves, following
-# Wessel Fig. 10, at the fixed source masses below.
+# Wessel Fig. 10, at the fixed source masses below, ordered by increasing mass.
 # These are illustrative rescalings, not known sources or rate forecasts.
 # Rescale using the initial BH mass, NOT ADM mass: f_obs ~ 1/[M_BH(1+z)].
 EXAMPLE_TARGETS = (
+    ("ce", 10.0, None),  # Illustrative NS-BH formation scale, not a merger waveform.
     ("ce", 50.0, None),
     ("decigo", 1.0e3, None),
     ("lisa", 1.0e5, None),
-    ("ce", 10.0, None),  # Illustrative NS-BH formation scale, not a merger waveform.
 )
 # Fixed reference scale from Shibata et al. (2021), arXiv:2101.05440.
 # Not GW190521's inferred parameters or a waveform/model fit to that event.

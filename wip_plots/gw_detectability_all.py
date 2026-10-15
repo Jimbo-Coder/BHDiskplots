@@ -152,10 +152,11 @@ def _example_caption(examples, note=None):
         r"Each reported SNR is the largest among the plotted simulation cases and "
         r"detectors, using the selected-mode source-direction mean-amplitude "
         r"spectrum. Each example lies on the uppermost SNR=8 reach curve "
-        r"at its fixed source mass: CE for (a) and (d), DECIGO for (b), and "
-        r"LISA for (c). Distances are solved using the same cosmology and "
+        r"at its fixed source mass, ordered from low to high mass: CE for "
+        r"(a) and (b), DECIGO for (c), and LISA for (d). Distances are solved "
+        r"using the same cosmology and "
         r"source-direction mean-amplitude statistic as the plotted reaches. "
-        r"Example (d) uses a $10\,M_\odot$ BH as an illustrative BH--NS "
+        r"Example (a) uses a $10\,M_\odot$ BH as an illustrative BH--NS "
         r"remnant scale, not a simulated merger waveform. ")
     for row in examples:
         if row["band_detector"] != row["detector"]:
@@ -414,9 +415,9 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
         axes[0].plot(row["mass_msun"], row["distance_mpc"], marker="+",
                      color="black", markersize=7, markeredgewidth=1.1,
                      linestyle="none", zorder=5)
-        offset = (5, 5) if row["label"] in {"a", "d"} else (5, -14)
-        if row["label"] == "d":
-            offset = (-16, 6)
+        offset = (5, -14)
+        if row["band_detector"] == "ce":
+            offset = (-16, 6) if row["mass_msun"] == 10 else (5, 5)
         axes[0].annotate(rf'$({row["label"]})$', (row["mass_msun"], row["distance_mpc"]),
                          xytext=offset, textcoords="offset points", fontsize=10)
     _draw_characteristic_strain(axes[1], result, legend=False, example_labels=example_labels)
