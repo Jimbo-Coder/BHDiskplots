@@ -47,7 +47,7 @@ OUTPUT_FILENAME_COMBINED_TIME_ON = "gw/gw_detectability_combined_time_on.png"
 OUTPUT_FILENAME_RADIUS_COMPARISON = "gw/gw_detectability_radius_comparison.png"
 OUTPUT_FILENAME_METHOD_COMPARISON = "gw/gw_detectability_method_comparison.png"
 
-# Presentation only; all cases retain the shared A/B colors, styles and legends.
+# Presentation only: case colours and one detector-style key across both panels.
 DETECTOR_LABELS = {
     "ligo": r"$\mathrm{LIGO\ A+}$", "ce": r"$\mathrm{Cosmic\ Explorer}$",
     "decigo": r"$\mathrm{DECIGO}$", "lisa": r"$\mathrm{LISA\ (SciRDv1)}$",
@@ -86,7 +86,6 @@ HORIZON_REDSHIFT_TICKS = (1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1.0, 10.0)
 HORIZON_LABEL_POSITIONS = {"ligo": (20, 0.018), "ce": (25, 150),
                            "et": (150, 1.1),
                            "decigo": (5000, 300), "lisa": (3e5, 1100)}
-HORIZON_LINESTYLES = {"et": "--"}  # Distinguish the overlapping ET/CE families.
 
 
 def _scientific_label(value):
@@ -144,7 +143,8 @@ def _example_caption(examples, note=None):
         r"initial BH mass, with redshift on the right axis. Bottom: characteristic "
         r"strain for four illustrative source scales and the corresponding "
         r"effective detector characteristic-noise curves. Colours identify the "
-        r"simulation cases in both panels; dashed distance curves identify ET. "
+        r"simulation cases in both panels; line styles identify the detectors "
+        r"in the distance curves and characteristic-noise curves using the same key. "
         r"The crosses in the distance panel and letter labels in the strain panel "
         r"refer to the same example sources: " + "; ".join(details) + ". "
         r"Each reported SNR is the largest among the plotted simulation cases and "
@@ -357,7 +357,7 @@ def _draw_horizon(ax, result, *, note=None, legend=True):
         for name, horizon in cases.items():
             source = result.sources[name]
             ax.plot(masses, horizon, color=source.color,
-                    linestyle=HORIZON_LINESTYLES.get(detector, source.linestyle),
+                    linestyle=DETECTOR_LINESTYLES[detector],
                     label=source.legend_name if index == 0 else "_nolegend_")
         label = DETECTOR_CURVE_LABELS.get(detector, DETECTOR_LABELS[detector])
         ax.text(*HORIZON_LABEL_POSITIONS[detector], label, ha="center", va="bottom",
@@ -458,7 +458,7 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
                                label=DETECTOR_CURVE_LABELS.get(d, DETECTOR_LABELS[d]))
                         for d in result.noise]
     fig.legend(handles=detector_handles, loc="center right", bbox_to_anchor=(.998, .32),
-               title=r"Noise $h_n(f)$", fontsize=9, title_fontsize=9, handlelength=2.1,
+               title="Detector", fontsize=9, title_fontsize=9, handlelength=2.1,
                frameon=True, edgecolor="0.8", borderpad=.5)
     if example_labels == "key":
         key_axis = fig.add_axes([.12, .035, .86, .11 + .02 * extra_rows])
