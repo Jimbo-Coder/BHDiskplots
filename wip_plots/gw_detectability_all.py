@@ -65,7 +65,7 @@ COMPARISON_HEIGHT = PAPER_TWO_PANEL_HEIGHT
 TARGETS_HEIGHT = 3.4
 SHIBATA_HEIGHT = PAPER_SINGLE_PANEL_HEIGHT
 HORIZON_HEIGHT = 3.4
-DETECTABILITY_HEIGHT = 4.4
+DETECTABILITY_HEIGHT = 5.4
 COMBINED_FREQUENCY_LIMITS = (5e-4, 3e2)  # Display only; full bins enter SNR.
 COMBINED_STRAIN_LIMITS = (1e-25, 1e-18)
 EXAMPLE_LABEL_STYLE = "caption"  # Wessel-style default; "inline" or "key" optional.
@@ -82,7 +82,8 @@ CHARACTERISTIC_YLIM = (1e-25, 1e-17)
 SOURCE_LABEL_SIZE = 11
 SOURCE_LABEL_POSITIONS = {"ce": (0.76, 0.97), "decigo": (0.40, 0.97), "lisa": (0.17, 0.97)}
 HORIZON_YLIM = (1e-2, 1e4)
-HORIZON_REDSHIFT_TICKS = (1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1.0, 10.0)
+HORIZON_REDSHIFT_TICKS = (0.001, 0.01, 0.05, 0.1, 0.5, 1.0)
+HORIZON_REDSHIFT_TICK_SIZE = 8
 HORIZON_LABEL_POSITIONS = {"ligo": (20, 0.018), "ce": (25, 150),
                            "et": (150, 1.1),
                            "decigo": (5000, 300), "lisa": (3e5, 1100)}
@@ -140,9 +141,10 @@ def _example_caption(examples, note=None):
             rf'({row["case"]}, {detector})')
     caption = (
         r"\caption{Top: SNR-threshold luminosity-distance reach versus source-frame "
-        r"initial BH mass, with redshift on the right axis. Bottom: characteristic "
-        r"strain for four illustrative source scales and the corresponding "
-        r"effective detector characteristic-noise curves. Colours identify the "
+        r"initial BH mass, with redshift on the right axis. Bottom: source-direction "
+        r"mean characteristic strain $\langle h_c(f)\rangle$ for four illustrative "
+        r"source scales and the corresponding effective detector characteristic "
+        r"noise $h_n^{\mathrm{eff}}(f)=\sqrt{f S_n^{\mathrm{eff}}(f)}$. Colours identify the "
         r"simulation cases in both panels; line styles identify the detectors "
         r"in the distance curves and characteristic-noise curves using the same key. "
         r"The crosses in the distance panel and letter labels in the strain panel "
@@ -330,7 +332,7 @@ def _draw_characteristic_strain(ax, result, *, fixed_source=False, note=None,
     for detector, (frequency, hn) in result.noise.items():
         ax.plot(frequency, hn, color=DETECTOR_COLOR, linewidth=1.25,
                 linestyle=DETECTOR_LINESTYLES[detector], label="_nolegend_")
-    ax.set(xlabel=r"$f_{\mathrm{obs}}\,[\mathrm{Hz}]$", ylabel=r"$h_c(f)$",
+    ax.set(xlabel=r"$f_{\mathrm{obs}}\,[\mathrm{Hz}]$", ylabel=r"$\langle h_c(f)\rangle$",
            yscale="log", ylim=CHARACTERISTIC_YLIM,
            xlim=(min(f[0] for f, _ in result.noise.values()), max(f[-1] for f, _ in result.noise.values())))
     _format_axes([ax])
@@ -374,10 +376,11 @@ def _draw_horizon(ax, result, *, note=None, legend=True):
     redshift_axis.set_ylabel(r"$z$")
     redshift_axis.yaxis.set_major_locator(FixedLocator(HORIZON_REDSHIFT_TICKS))
     redshift_axis.yaxis.set_major_formatter(
-        FuncFormatter(lambda z, _: rf"${_scientific_label(z)}$"))
+        FuncFormatter(lambda z, _: rf"${z:g}$"))
     redshift_axis.yaxis.set_minor_locator(NullLocator())
     redshift_axis.tick_params(axis="y", which="both", direction="in",
-                              left=False, right=True, labelleft=False, labelright=True)
+                              left=False, right=True, labelleft=False, labelright=True,
+                              labelsize=HORIZON_REDSHIFT_TICK_SIZE)
     redshift_axis.grid(False, which="both")
     # The right edge represents redshift, not mirrored distance ticks.
     ax.tick_params(axis="y", which="both", right=False)
@@ -404,7 +407,8 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
     extra_rows = max(0, len(examples) - 3)
     height = DETECTABILITY_HEIGHT + (EXAMPLE_KEY_HEIGHT + .18 * extra_rows
                                     if example_labels == "key" else 0)
-    fig, axes = plt.subplots(2, 1, figsize=figure_size("double", height))
+    fig, axes = plt.subplots(2, 1, figsize=figure_size("double", height),
+                             gridspec_kw={"height_ratios": (1.5, 1)})
     _draw_horizon(axes[0], result, legend=False)
     for row in examples:
         axes[0].plot(row["mass_msun"], row["distance_mpc"], marker="+",
@@ -433,17 +437,25 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
             text.set_fontsize(9)
     for secondary in axes[0].child_axes:
         secondary.yaxis.label.set_fontsize(11)
-        secondary.tick_params(which="major", labelsize=9, length=4, width=.8, pad=3)
+        secondary.tick_params(which="major", labelsize=HORIZON_REDSHIFT_TICK_SIZE,
+                              length=4, width=.8, pad=3)
         for spine in secondary.spines.values():
             spine.set_linewidth(.8)
+    # Both lower-panel quantities share the same dimensionless amplitude scale.
+    noise_axis = axes[1].secondary_yaxis("right")
+    noise_axis.set_ylabel(r"$h_n^{\mathrm{eff}}(f)$", fontsize=11, labelpad=6)
+    noise_axis.yaxis.set_major_locator(NullLocator())
+    noise_axis.yaxis.set_minor_locator(NullLocator())
+    noise_axis.spines["right"].set_linewidth(.8)
+    axes[1].tick_params(axis="y", which="both", right=False)
     # Keep both keys outside the data, in one compact horizontal strip.
     bottom = .23 + .02 * extra_rows if example_labels == "key" else .13
-    gap = .66 if example_labels == "inline" else .52 if note else .40
+    gap = .66 if example_labels == "inline" else .42 if note else .32
     top = .90 if example_labels == "inline" else .97
     fig.subplots_adjust(left=.11, right=.89, bottom=bottom, top=top, hspace=gap)
     lower_top = axes[1].get_position().y1
     legend_y = (.96 if example_labels == "inline" else
-                lower_top + (.30 if note and example_labels != "key" else .15)/height)
+                lower_top + (.26 if note and example_labels != "key" else .10)/height)
     if note and example_labels in {"key", "inline"}:
         fig.text(.13, .008, note.replace("\n", "; "), ha="left", va="bottom", fontsize=9)
     elif note:
