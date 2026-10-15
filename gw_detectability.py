@@ -41,7 +41,7 @@ from gw import MODES as CACHED_MODES, mode_columns, read_strain_cache, strain_ca
 
 # ANALYSIS CHOICES: edit this block, not the functions below.
 # Reviewed on 2026-09-11 for six disks at the fixed test targets in the notes.
-# The displayed examples use fixed round source scales, not optimized horizons.
+# Example masses are fixed; DECIGO/LISA distances follow the best-case threshold.
 # See the measured
 # sensitivity table in notes/KNOWLEDGE.md; these are not universal error bounds.
 # Window/time/frequency bounds below refer to the default four-mode subset.
@@ -103,16 +103,17 @@ DETECTOR_BOUNDS = {
     "decigo": (1.0e-2, 10.0), "lisa": (1.0e-4, 1.0),
 }
 
-# 6. Fixed illustrative sources: (detector band, source M_BH/Msun, D_L/Mpc).
-# Stellar, intermediate and massive BH scales; shared by the selected simulations.
-# The ground-based example uses 100 Mpc, matching the Shibata reference below.
-# These are fixed comparison choices, not known sources, detection guarantees
-# or rate forecasts. Do not retune them when new data arrive.
+# 6. Illustrative sources: (detector band, source M_BH/Msun, D_L/Mpc).
+# None selects the largest SNR=8 distance among the plotted cases in that band.
+# DECIGO/LISA examples therefore sit on their uppermost reach curves, following
+# Wessel Fig. 10. The stellar examples retain explicitly fixed distances.
+# These are illustrative rescalings, not known sources or rate forecasts.
 # Rescale using the initial BH mass, NOT ADM mass: f_obs ~ 1/[M_BH(1+z)].
 EXAMPLE_TARGETS = (
     ("ce", 50.0, 100.0),
-    ("decigo", 1.0e3, 500.0),
-    ("lisa", 1.0e5, 50.0),
+    ("decigo", 1.0e3, None),
+    ("lisa", 1.0e5, None),
+    ("ce", 10.0, 50.0),  # Illustrative NS-BH formation scale, not a merger waveform.
 )
 # Fixed reference scale from Shibata et al. (2021), arXiv:2101.05440.
 # Not GW190521's inferred parameters or a waveform/model fit to that event.
@@ -208,6 +209,8 @@ class ObservedTarget:
     strain: dict  # case -> (observed frequency in Hz, characteristic strain)
     snr: dict  # case -> detector -> SNR of the chosen source-amplitude statistic
     detector: str | None  # Example's detector band; None for the Shibata reference.
+    distance_policy: str = "fixed"
+    horizon_case: str | None = None
 
 
 @dataclass
@@ -241,14 +244,9 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
         frequency = np.geomspace(low, high, 500)
         noise[detector] = frequency, np.sqrt(frequency) * effective_detector_asd(detector, frequency, curves)
 
-    # Step 6: fixed source choices; redshift follows the same cosmology as SNR.
+    # Step 6: source choices; redshift follows the same cosmology as SNR.
     cosmology = FlatLambdaCDM(z_max=max(12.0, HORIZON_REDSHIFT_MAX + 0.5))
-    targets = []
-    for detector, mass, distance in EXAMPLE_TARGETS:
-        if detector not in active_detectors():
-            raise ValueError(f"Example detector {detector} is not in ACTIVE_DETECTORS")
-        redshift = cosmology.redshift_at_luminosity_distance(distance)
-        targets.append(observed_target(spectra, mass, distance, redshift, curves, detector))
+    targets = example_targets(spectra, curves, cosmology)
 
     redshift = cosmology.redshift_at_luminosity_distance(SHIBATA_DISTANCE_MPC)
     shibata = observed_target(spectra, SHIBATA_BH_MASS_MSUN, SHIBATA_DISTANCE_MPC,
@@ -260,7 +258,7 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
 
 
 def observed_target(spectra, mass, distance, redshift, curves, detector=None):
-    """Apply one shared physical source scale to every case, without tuning it."""
+    """Apply one shared physical source scale to every case."""
     strain, snr = {}, {}
     for name, spectrum in spectra.items():
         frequency, strain_ft = observer_spectrum(spectrum, mass, distance, redshift)
@@ -271,6 +269,33 @@ def observed_target(spectra, mass, distance, redshift, curves, detector=None):
             for detector_name in active_detectors()
         }
     return ObservedTarget(mass, distance, redshift, strain, snr, detector)
+
+
+def example_targets(spectra, curves, cosmology):
+    """Use fixed stellar distances and refined best-case DECIGO/LISA reaches."""
+    targets = []
+    for detector, mass, distance in EXAMPLE_TARGETS:
+        if detector not in active_detectors():
+            raise ValueError(f"Example detector {detector} is not in ACTIVE_DETECTORS")
+        horizon_case = None
+        if distance is None:
+            candidates = []
+            for name, spectrum in spectra.items():
+                power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
+                z = _threshold_redshift(power, detector, mass, curves, cosmology, refine=True)
+                if np.isfinite(z):
+                    candidates.append((float(cosmology.luminosity_distance_mpc(z)), name, z))
+            if not candidates:
+                raise ValueError(f"No {detector} threshold example at {mass:g} solar masses")
+            distance, horizon_case, redshift = max(candidates)
+        else:
+            redshift = cosmology.redshift_at_luminosity_distance(distance)
+        target = observed_target(spectra, mass, distance, redshift, curves, detector)
+        if horizon_case is not None:
+            target.distance_policy = "best-case threshold"
+            target.horizon_case = horizon_case
+        targets.append(target)
+    return targets
 
 
 # 1. Read matching, uniformly sampled r*Psi4 and retarded time.
@@ -942,13 +967,20 @@ def horizon_curves(spectra, curves, cosmology):
         np.log10(HORIZON_MASS_RANGE_MSUN[1]),
         int(HORIZON_MASS_SAMPLES),
     )
+    # Include exact example masses so their crosses lie on the drawn curves.
+    masses = np.unique(np.r_[masses, [mass for _, mass, _ in EXAMPLE_TARGETS
+                                     if HORIZON_MASS_RANGE_MSUN[0] <= mass <= HORIZON_MASS_RANGE_MSUN[1]]])
+    threshold_examples = {(detector, mass) for detector, mass, distance in EXAMPLE_TARGETS
+                          if distance is None}
     result = {detector: {} for detector in active_detectors()}
     for sim_name, spectrum in spectra.items():
         binned = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
         for detector in active_detectors():
             horizon = np.full_like(masses, np.nan)
             for mass_index, source_mass in enumerate(masses):
-                z_horizon = _threshold_redshift(binned, detector, source_mass, curves, cosmology)
+                z_horizon = _threshold_redshift(
+                    binned, detector, source_mass, curves, cosmology,
+                    refine=(detector, source_mass) in threshold_examples)
                 if np.isfinite(z_horizon):
                     horizon[mass_index] = cosmology.luminosity_distance_mpc(z_horizon)
             result[detector][sim_name] = horizon

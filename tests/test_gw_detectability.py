@@ -312,19 +312,20 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         spectrum = DimensionlessSpectrum(np.geomspace(.001, .1, 100), np.ones(100), "mean")
         source = SimpleNamespace(spectrum=spectrum)
         with mock.patch.object(analysis, "source_spectra", return_value=({"B1": source}, {})), \
-                mock.patch.object(analysis, "horizon_curves") as horizons:
+                mock.patch.object(analysis, "horizon_curves") as horizons, \
+                mock.patch.object(analysis, "EXAMPLE_TARGETS", (("ce", 50., 100.), ("ce", 10., 50.))):
             result = analysis.analyze(["B1"], compute_horizons=False)
         horizons.assert_not_called()
         self.assertIsNone(result.horizons)
         self.assertEqual([(t.detector, t.mass, t.distance) for t in result.targets],
-                         list(analysis.EXAMPLE_TARGETS))
+                         [("ce", 50., 100.), ("ce", 10., 50.)])
 
-    def test_three_source_scales_share_one_axis_and_one_legend(self):
+    def test_four_source_scales_share_one_axis_and_one_legend(self):
         import matplotlib.pyplot as plt
         from wip_plots import gw_detectability_all as plots
         frequency = np.geomspace(.001, 100, 40)
         source = SimpleNamespace(color="blue", linestyle="-", legend_name="A1")
-        targets = [SimpleNamespace(detector=d, mass=m, distance=r,
+        targets = [SimpleNamespace(detector=d, mass=m, distance=r or 100.,
                                    strain={"A1": (frequency, np.full(40, 1e-21))},
                                    snr={"A1": {d: 7}}) for d, m, r in analysis.EXAMPLE_TARGETS]
         result = SimpleNamespace(targets=targets, sources={"A1": source},
@@ -336,9 +337,59 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
             try:
                 self.assertEqual(len(fig.axes), 1)
                 ax = fig.axes[0]
-                self.assertEqual(len(ax.lines), 4)  # Three signals, one noise curve.
-                self.assertEqual(len(ax.texts), 3)  # One mass/distance pair per group.
+                self.assertEqual(len(ax.lines), 5)  # Four signals, one noise curve.
+                self.assertEqual(len(ax.texts), 4)
                 self.assertEqual([t.get_text() for t in ax.get_legend().get_texts()], ["A1"])
+                fig.canvas.draw()
+            finally:
+                plt.close(fig)
+
+    def test_best_case_examples_match_the_uppermost_horizon_curve(self):
+        frequency = np.geomspace(.001, .1, 100)
+        spectra = {"A1": DimensionlessSpectrum(frequency, np.ones(100), "mean"),
+                   "A3": DimensionlessSpectrum(frequency, 3*np.ones(100), "mean")}
+        cosmology = FlatLambdaCDM()
+        with mock.patch.object(analysis, "_bin_spectral_power",
+                               side_effect=lambda spectrum, bins: float(spectrum.strain_ft[0])), \
+                mock.patch.object(analysis, "_snr_from_binned_power",
+                                  side_effect=lambda power, detector, mass, distance, curves: power*16/distance):
+            targets = analysis.example_targets(spectra, {}, cosmology)
+            masses, horizons = analysis.horizon_curves(spectra, {}, cosmology)
+        self.assertEqual([(targets[i].mass, targets[i].distance) for i in (0, 3)],
+                         [(50., 100.), (10., 50.)])
+        for target in targets[1:3]:
+            self.assertEqual(target.horizon_case, "A3")
+            self.assertEqual(target.distance_policy, "best-case threshold")
+            self.assertAlmostEqual(target.distance, 6., places=7)
+            self.assertAlmostEqual(max(snr[target.detector] for snr in target.snr.values()), 8., places=7)
+            index = list(masses).index(target.mass)
+            self.assertAlmostEqual(target.distance,
+                                   max(curve[index] for curve in horizons[target.detector].values()), places=7)
+
+    def test_combined_layout_preserves_seven_inch_width_and_writes_source_metadata(self):
+        import matplotlib.pyplot as plt
+        from wip_plots import gw_detectability_all as plots
+        frequency = np.geomspace(.001, 1000., 100)
+        source = SimpleNamespace(color="blue", linestyle="-", legend_name="A3")
+        targets = [SimpleNamespace(detector=d, mass=m, distance=r or 100., redshift=.02,
+                                   strain={"A3": (frequency, 1e-22*np.ones(100))},
+                                   snr={"A3": {d: 8.}}, distance_policy="fixed", horizon_case=None)
+                   for d,m,r in analysis.EXAMPLE_TARGETS]
+        noise = {d:(frequency, 1e-23*np.ones(100)) for d in ("ce","decigo","lisa")}
+        result = SimpleNamespace(targets=targets,sources={"A3":source},noise=noise,
+                                 horizons=(np.array([1.,1e7]),
+                                           {"ce":{"A3":np.array([1.,100.])}}))
+        with tempfile.TemporaryDirectory() as tmp, \
+                plt.rc_context({"text.usetex":False,"font.family":"serif"}), \
+                mock.patch.object(plots,"savefig",
+                                  side_effect=lambda fig,args,name: fig.savefig(Path(args.outdir)/name)) as save:
+            plots._plot_detectability(result, SimpleNamespace(outdir=Path(tmp),no_save=False))
+            fig=save.call_args.args[0]
+            try:
+                self.assertAlmostEqual(fig.get_figwidth(),7.)
+                self.assertEqual(len(fig.legends),2)
+                self.assertEqual([row['label'] for row in plots.example_source_info(result)],list('abcd'))
+                self.assertTrue((Path(tmp)/'gw/gw_detectability_combined_caption.tex').is_file())
                 fig.canvas.draw()
             finally:
                 plt.close(fig)

@@ -18,6 +18,8 @@ from matplotlib.path import Path as MplPath
 from matplotlib.patches import PathPatch
 from matplotlib.textpath import TextPath
 import numpy as np
+import shutil
+from matplotlib.lines import Line2D
 
 import gw_detectability as analysis
 from helpers.plot_common import parser, savefig, save_individual_fig, setup
@@ -40,6 +42,8 @@ OUTPUT_FILENAME_TIME_ON = "gw/gw_detectability_characteristic_strain_time_on.png
 OUTPUT_FILENAME_HORIZON_TIME_ON = "gw/gw_detectability_horizon_time_on.png"
 OUTPUT_FILENAME_SHIBATA = "gw/gw_detectability_shibata.png"
 OUTPUT_FILENAME_HORIZON = "gw/gw_detectability_horizon.png"
+OUTPUT_FILENAME_COMBINED = "gw/gw_detectability_combined.png"
+OUTPUT_FILENAME_COMBINED_TIME_ON = "gw/gw_detectability_combined_time_on.png"
 OUTPUT_FILENAME_RADIUS_COMPARISON = "gw/gw_detectability_radius_comparison.png"
 OUTPUT_FILENAME_METHOD_COMPARISON = "gw/gw_detectability_method_comparison.png"
 
@@ -58,9 +62,15 @@ DETECTOR_LABEL_HZ = {"ligo": 120.0, "et": 900.0, "ce": 300.0, "decigo": 0.15, "l
 DETECTOR_LABEL_PAD_POINTS = {"ligo": 2, "et": 3, "ce": 3, "decigo": 6, "lisa": 3}
 DETECTOR_LABEL_SIZE = 9
 COMPARISON_HEIGHT = PAPER_TWO_PANEL_HEIGHT
-TARGETS_HEIGHT = 4.3
+TARGETS_HEIGHT = 3.4
 SHIBATA_HEIGHT = PAPER_SINGLE_PANEL_HEIGHT
-HORIZON_HEIGHT = 4.3
+HORIZON_HEIGHT = 3.4
+DETECTABILITY_HEIGHT = 4.4
+COMBINED_FREQUENCY_LIMITS = (5e-4, 3e2)  # Display only; full bins enter SNR.
+COMBINED_STRAIN_LIMITS = (1e-25, 1e-18)
+EXAMPLE_LABEL_STYLE = "caption"  # Wessel-style default; "inline" or "key" optional.
+EXAMPLE_KEY_HEIGHT = .7
+EXAMPLE_KEY_FONT_SIZE = 10
 VALIDATION_HEIGHT = PAPER_THREE_PANEL_HEIGHT
 TEMPORAL_VALIDATION_HEIGHT = PAPER_THREE_PANEL_HEIGHT
 TEMPORAL_NOTE_SIZE = 11
@@ -73,9 +83,9 @@ SOURCE_LABEL_SIZE = 11
 SOURCE_LABEL_POSITIONS = {"ce": (0.76, 0.97), "decigo": (0.40, 0.97), "lisa": (0.17, 0.97)}
 HORIZON_YLIM = (1e-2, 1e4)
 HORIZON_REDSHIFT_TICKS = (1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1.0, 10.0)
-HORIZON_LABEL_POSITIONS = {"ligo": (20, 0.018), "ce": (40, 60),
+HORIZON_LABEL_POSITIONS = {"ligo": (20, 0.018), "ce": (25, 150),
                            "et": (150, 1.1),
-                           "decigo": (5000, 4000), "lisa": (4e5, 600)}
+                           "decigo": (5000, 300), "lisa": (3e5, 1100)}
 HORIZON_LINESTYLES = {"et": "--"}  # Distinguish the overlapping ET/CE families.
 
 
@@ -96,6 +106,86 @@ def _spectrum_plot_mask(frequency, values):
     if np.any(keep):
         keep &= values >= 1e-10 * np.max(values[keep])
     return keep
+
+
+def example_source_info(result):
+    """Actual source scales and largest SNR across cases and plotted detectors."""
+    examples = []
+    for index, target in enumerate(result.targets):
+        candidates = [(float(snr), name, detector)
+                      for name, detectors in target.snr.items()
+                      for detector, snr in detectors.items() if np.isfinite(snr)]
+        snr, name, detector = max(candidates)
+        band_snr, band_case = max((float(values[target.detector]), name)
+                                  for name, values in target.snr.items())
+        examples.append(dict(label=chr(ord("a") + index), mass_msun=target.mass,
+                             distance_mpc=target.distance, redshift=target.redshift,
+                             max_snr=snr, case=name, detector=detector,
+                             band_detector=target.detector,
+                             band_snr=band_snr, band_case=band_case,
+                             distance_policy=getattr(target, "distance_policy", "fixed"),
+                             horizon_case=getattr(target, "horizon_case", None)))
+    return examples
+
+
+def _example_caption(examples, note=None):
+    details = []
+    for row in examples:
+        mass = _scientific_label(row["mass_msun"])
+        distance = _scientific_label(row["distance_mpc"])
+        detector = DETECTOR_CURVE_LABELS.get(row["detector"], DETECTOR_LABELS[row["detector"]])
+        details.append(
+            rf'({row["label"]}) $M_{{\rm BH}}={mass}\,M_\odot$, '
+            rf'$D_L={distance}\,{{\rm Mpc}}$, $z={row["redshift"]:.4g}$, '
+            rf'$\rho_{{\max}}={row["max_snr"]:.3g}$ '
+            rf'({row["case"]}, {detector})')
+    caption = (
+        r"\caption{Top: SNR-threshold luminosity-distance reach versus source-frame "
+        r"initial BH mass, with redshift on the right axis. Bottom: characteristic "
+        r"strain for four illustrative source scales and the corresponding "
+        r"effective detector characteristic-noise curves. Colours identify the "
+        r"simulation cases in both panels; dashed distance curves identify ET. "
+        r"The crosses in the distance panel and letter labels in the strain panel "
+        r"refer to the same example sources: " + "; ".join(details) + ". "
+        r"Each reported SNR is the largest among the plotted simulation cases and "
+        r"detectors, using the selected-mode source-direction mean-amplitude "
+        r"spectrum. Examples (a) and (d) have fixed luminosity distances; "
+        r"(d) uses a $10\,M_\odot$ BH at $50\,{\rm Mpc}$ as an illustrative "
+        r"BH--NS remnant scale, not a simulated merger waveform. Examples "
+        r"(b) and (c) lie on the uppermost DECIGO and LISA SNR=8 reach curves, "
+        r"respectively, with distances solved using the same cosmology and "
+        r"source-direction mean-amplitude statistic as the plotted reaches. ")
+    for row in examples:
+        if row["band_detector"] != row["detector"]:
+            detector = DETECTOR_CURVE_LABELS.get(
+                row["band_detector"], DETECTOR_LABELS[row["band_detector"]])
+            caption += (rf'For example ({row["label"]}), the largest SNR in '
+                        + detector + r' is $' + f'{row["band_snr"]:.3g}' + '$. ')
+    if note:
+        caption += "The continuation shown here is conditional; " + note.replace("\n", "; ") + ". "
+    else:
+        caption += "Only the measured finite-duration signal is used. "
+    return caption + "}\n"
+
+
+def _example_key(ax, examples):
+    columns = ["Example", r"$M_{\rm BH}/M_\odot$", r"$D_L\,[{\rm Mpc}]$",
+               r"$z$", r"$\rho_{\rm band}$", "Case", "Detector"]
+    rows = [[f'({row["label"]})', '$' + _scientific_label(row["mass_msun"]) + '$',
+             '$' + _scientific_label(row["distance_mpc"]) + '$',
+             f'{row["redshift"]:.4g}', f'{row["band_snr"]:.3g}', row["band_case"],
+             DETECTOR_CURVE_LABELS.get(row["band_detector"], DETECTOR_LABELS[row["band_detector"]])]
+            for row in examples]
+    ax.set_axis_off()
+    table = ax.table(cellText=rows, colLabels=columns, cellLoc="center",
+                     colWidths=[.11, .18, .18, .13, .13, .1, .17], bbox=[0, 0, 1, 1])
+    table.auto_set_font_size(False)
+    table.set_fontsize(EXAMPLE_KEY_FONT_SIZE)
+    for (row, column), cell in table.get_celld().items():
+        cell.set_edgecolor("0.65")
+        cell.set_linewidth(.5)
+        if row == 0:
+            cell.set_facecolor("0.95")
 
 
 def _format_axes(axes):
@@ -182,10 +272,10 @@ def _plot_method_comparison(result, args):
     savefig(fig, args, OUTPUT_FILENAME_METHOD_COMPARISON)
 
 
-def _plot_characteristic_strain(result, args, *, fixed_source=False, filename=None, note=None):
+def _draw_characteristic_strain(ax, result, *, fixed_source=False, note=None,
+                                legend=True, example_labels="scales"):
     targets = [result.shibata] if fixed_source else result.targets
-    height = SHIBATA_HEIGHT if fixed_source else TARGETS_HEIGHT
-    fig, ax = plt.subplots(figsize=figure_size("double", height))
+    examples = example_source_info(result) if example_labels != "scales" else None
     for index, target in enumerate(targets):
         for name, (frequency, hc) in target.strain.items():
             source = result.sources[name]
@@ -197,10 +287,46 @@ def _plot_characteristic_strain(result, args, *, fixed_source=False, filename=No
         mass_text = _scientific_label(target.mass)
         distance_text = _scientific_label(target.distance)
         position = SOURCE_LABEL_POSITIONS["ce"] if fixed_source else SOURCE_LABEL_POSITIONS[target.detector]
-        ax.text(*position,
-                rf"$M_{{\mathrm{{BH}}}}={mass_text}\,M_\odot$" + "\n"
-                + rf"$D_L={distance_text}\,\mathrm{{Mpc}}$",
-                transform=ax.transAxes, ha="center", va="top", fontsize=SOURCE_LABEL_SIZE)
+        if not fixed_source and target.detector == "ce" and target.mass == 10:
+            position = (.92, .75)
+        text = (rf"$M_{{\mathrm{{BH}}}}={mass_text}\,M_\odot$" + "\n"
+                + rf"$D_L={distance_text}\,\mathrm{{Mpc}}$")
+        size = SOURCE_LABEL_SIZE
+        alignment = "top"
+        if example_labels == "inline":
+            row = examples[index]
+            detector = DETECTOR_CURVE_LABELS.get(row["detector"], DETECTOR_LABELS[row["detector"]])
+            text = (rf'$({row["label"]})\quad M_{{\rm BH}}={mass_text}\,M_\odot$' + "\n"
+                    + rf"$D_L={distance_text}\,\mathrm{{Mpc}}$" + "\n"
+                    + rf'$z={target.redshift:.4g}$' + "\n"
+                    + rf'$\rho_{{\max}}={row["max_snr"]:.3g}$'
+                    + f' ({row["case"]}, {detector})')
+            # Keep the full information on the figure, above the data region.
+            # The inline layout reserves a larger gap between the two panels.
+            ax.text(*position, rf'$({row["label"]})$', transform=ax.transAxes,
+                    ha="center", va="top", fontsize=SOURCE_LABEL_SIZE)
+            position = {"ce": (.69, 1.04), "decigo": (.40, 1.04), "lisa": (.12, 1.04)}[target.detector]
+            if target.detector == "ce" and target.mass == 10:
+                position = (.94, 1.04)
+            alignment = "bottom"
+            size = 9
+        elif example_labels in {"caption", "key"}:
+            text = rf'$({examples[index]["label"]})$'
+            # Place each letter next to its best in-band SNR contribution.
+            frequency, hc = target.strain[examples[index]["band_case"]]
+            noise_f, noise_h = result.noise[target.detector]
+            keep = _spectrum_plot_mask(frequency, hc)
+            keep &= (frequency >= noise_f[0]) & (frequency <= noise_f[-1])
+            if np.any(keep):
+                f, h = frequency[keep], hc[keep]
+                hn = np.exp(np.interp(np.log(f), np.log(noise_f), np.log(noise_h)))
+                peak = int(np.argmax(h / hn))
+                ax.annotate(text, (f[peak], h[peak]), xytext=(3, 12),
+                            textcoords="offset points", ha="center", va="bottom",
+                            fontsize=10)
+                continue
+        ax.text(*position, text, transform=ax.transAxes,
+                ha="center", va=alignment, fontsize=size)
     for detector, (frequency, hn) in result.noise.items():
         ax.plot(frequency, hn, color=DETECTOR_COLOR, linewidth=1.25,
                 linestyle=DETECTOR_LINESTYLES[detector], label="_nolegend_")
@@ -208,19 +334,25 @@ def _plot_characteristic_strain(result, args, *, fixed_source=False, filename=No
            yscale="log", ylim=CHARACTERISTIC_YLIM,
            xlim=(min(f[0] for f, _ in result.noise.values()), max(f[-1] for f, _ in result.noise.values())))
     _format_axes([ax])
-    ordered_sim_legend(ax, ncols=3, loc="lower left", **COMPACT_LEGEND_KWARGS)
+    if legend:
+        ordered_sim_legend(ax, ncols=3, loc="lower left", **COMPACT_LEGEND_KWARGS)
     if note:
         ax.text(.98, .04, note, transform=ax.transAxes, ha="right", va="bottom",
                 fontsize=SOURCE_LABEL_SIZE)
+
+
+def _plot_characteristic_strain(result, args, *, fixed_source=False, filename=None, note=None):
+    height = SHIBATA_HEIGHT if fixed_source else TARGETS_HEIGHT
+    fig, ax = plt.subplots(figsize=figure_size("double", height))
+    _draw_characteristic_strain(ax, result, fixed_source=fixed_source, note=note)
     fig.subplots_adjust(left=0.13, right=0.98, bottom=0.18, top=0.98)
     for detector, (frequency, hn) in result.noise.items():
         _label_noise_curve(ax, frequency, hn, detector)
     savefig(fig, args, filename or (OUTPUT_FILENAME_SHIBATA if fixed_source else OUTPUT_FILENAME_CHARACTERISTIC_STRAIN))
 
 
-def _plot_horizon(result, args, *, filename=OUTPUT_FILENAME_HORIZON, note=None):
+def _draw_horizon(ax, result, *, note=None, legend=True):
     masses, horizons = result.horizons
-    fig, ax = plt.subplots(figsize=figure_size("double", HORIZON_HEIGHT))
     for index, (detector, cases) in enumerate(horizons.items()):
         for name, horizon in cases.items():
             source = result.sources[name]
@@ -249,12 +381,107 @@ def _plot_horizon(result, args, *, filename=OUTPUT_FILENAME_HORIZON, note=None):
     redshift_axis.grid(False, which="both")
     # The right edge represents redshift, not mirrored distance ticks.
     ax.tick_params(axis="y", which="both", right=False)
-    ordered_sim_legend(ax, ncols=3, loc="upper left", **COMPACT_LEGEND_KWARGS)
+    if legend:
+        ordered_sim_legend(ax, ncols=3, loc="upper left", **COMPACT_LEGEND_KWARGS)
     if note:
         ax.text(.03, .83, note, transform=ax.transAxes, ha="left", va="top",
                 fontsize=SOURCE_LABEL_SIZE)
+
+
+def _plot_horizon(result, args, *, filename=OUTPUT_FILENAME_HORIZON, note=None):
+    fig, ax = plt.subplots(figsize=figure_size("double", HORIZON_HEIGHT))
+    _draw_horizon(ax, result, note=note)
     fig.subplots_adjust(left=0.13, right=0.87, bottom=0.18, top=0.98)
     savefig(fig, args, filename)
+
+
+def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note=None,
+                        example_labels=EXAMPLE_LABEL_STYLE, write_metadata=True):
+    """Distance above characteristic strain, following Wessel Fig. 10's layout."""
+    if example_labels not in {"inline", "caption", "key"}:
+        raise ValueError("Choose inline, caption, or key example labels")
+    examples = example_source_info(result)
+    extra_rows = max(0, len(examples) - 3)
+    height = DETECTABILITY_HEIGHT + (EXAMPLE_KEY_HEIGHT + .18 * extra_rows
+                                    if example_labels == "key" else 0)
+    fig, axes = plt.subplots(2, 1, figsize=figure_size("double", height))
+    _draw_horizon(axes[0], result, legend=False)
+    for row in examples:
+        axes[0].plot(row["mass_msun"], row["distance_mpc"], marker="+",
+                     color="black", markersize=7, markeredgewidth=1.1,
+                     linestyle="none", zorder=5)
+        offset = (5, 5) if row["label"] in {"a", "d"} else (5, -14)
+        if row["label"] == "d":
+            offset = (-16, 6)
+        axes[0].annotate(rf'$({row["label"]})$', (row["mass_msun"], row["distance_mpc"]),
+                         xytext=offset, textcoords="offset points", fontsize=10)
+    _draw_characteristic_strain(axes[1], result, legend=False, example_labels=example_labels)
+    axes[1].set(xlim=COMBINED_FREQUENCY_LIMITS, ylim=COMBINED_STRAIN_LIMITS)
+    # Scale typography and strokes to these deliberately short panels.
+    for ax in axes:
+        ax.xaxis.label.set_fontsize(11)
+        ax.yaxis.label.set_fontsize(11)
+        ax.tick_params(which="major", labelsize=9, length=4, width=.8, pad=3)
+        ax.tick_params(which="minor", length=2, width=.6)
+        ax.grid(True, which="major", linewidth=.5, color="0.75")
+        ax.grid(True, which="minor", linewidth=.3, color="0.88")
+        for spine in ax.spines.values():
+            spine.set_linewidth(.8)
+        for line in ax.lines:
+            line.set_linewidth(1.05)
+        for text in ax.texts:
+            text.set_fontsize(9)
+    for secondary in axes[0].child_axes:
+        secondary.yaxis.label.set_fontsize(11)
+        secondary.tick_params(which="major", labelsize=9, length=4, width=.8, pad=3)
+        for spine in secondary.spines.values():
+            spine.set_linewidth(.8)
+    if note and example_labels == "key":
+        fig.text(.13, .008, note.replace("\n", "; "), ha="left", va="bottom", fontsize=9)
+    elif note:
+        fig.text(.80, .72, note.replace(": conditional ", ": conditional\n"),
+                 ha="left", va="top", fontsize=8)
+    # Independent mass/frequency axes; align both plotting areas and reserve
+    # the right margin for the distance panel's existing redshift axis.
+    bottom = .23 + .02 * extra_rows if example_labels == "key" else .13
+    gap = .66 if example_labels == "inline" else .40
+    fig.subplots_adjust(left=.12, right=.74, bottom=bottom, top=.97, hspace=gap)
+    case_handles = [Line2D([], [], color=source.color, linestyle=source.linestyle,
+                           label=source.legend_name) for source in result.sources.values()]
+    fig.legend(handles=case_handles, ncols=1 if len(case_handles)<=3 else 2,
+               loc="upper right", bbox_to_anchor=(.998, .97),
+               title="Simulation", fontsize=9, title_fontsize=9, handlelength=1.5,
+               columnspacing=.7, handletextpad=.5, borderpad=.5,
+               frameon=True, edgecolor="0.8")
+    detector_handles = [Line2D([], [], color=DETECTOR_COLOR, linestyle=DETECTOR_LINESTYLES[d],
+                               linewidth=1.05,
+                               label=DETECTOR_CURVE_LABELS.get(d, DETECTOR_LABELS[d]))
+                        for d in result.noise]
+    fig.legend(handles=detector_handles, loc="center right", bbox_to_anchor=(.998, .32),
+               title=r"Noise $h_n(f)$", fontsize=9, title_fontsize=9, handlelength=2.1,
+               frameon=True, edgecolor="0.8", borderpad=.5)
+    if example_labels == "key":
+        key_axis = fig.add_axes([.12, .035, .86, .11 + .02 * extra_rows])
+        _example_key(key_axis, examples)
+    if not args.no_save:
+        path = Path(args.outdir) / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Preserve the requested full-page 7-inch width in both exports.
+        with plt.rc_context({"savefig.bbox": None}):
+            fig.savefig(path.with_suffix(".pdf"))
+        if write_metadata:
+            path.with_name(path.stem + "_examples.json").write_text(json.dumps(examples, indent=2) + "\n")
+            path.with_name(path.stem + "_caption.tex").write_text(_example_caption(examples, note))
+    with plt.rc_context({"savefig.bbox": None}):
+        savefig(fig, args, filename)
+    if not args.no_save and filename in {OUTPUT_FILENAME_COMBINED, OUTPUT_FILENAME_COMBINED_TIME_ON}:
+        # Keep related variants together and preserve existing paper-facing paths.
+        variant = "conditional" if filename == OUTPUT_FILENAME_COMBINED_TIME_ON else "measured"
+        family = Path(args.outdir) / "gw" / "detectability"
+        family.mkdir(parents=True, exist_ok=True)
+        suffixes = [".png", ".pdf"] + (["_caption.tex", "_examples.json"] if write_metadata else [])
+        for suffix in suffixes:
+            shutil.copyfile(path.with_name(path.stem + suffix), family / (variant + suffix))
 
 
 def _plot_time_on(result, args):
@@ -305,13 +532,16 @@ def _plot_time_on(result, args):
             lines.append(", ".join(names)+label)
     note = "\n".join(lines)
     curves, cosmology = analysis.load_detector_curves(), analysis.FlatLambdaCDM()
-    targets = [analysis.observed_target(spectra, t.mass, t.distance, t.redshift, curves, t.detector)
-               for t in result.targets]
+    targets = analysis.example_targets(spectra, curves, cosmology)
     updated = replace(result, targets=targets)
-    _plot_characteristic_strain(updated, args, filename=OUTPUT_FILENAME_TIME_ON, note=note)
     if PLOT_HORIZON:
         updated.horizons = analysis.horizon_curves(spectra, curves, cosmology)
-        _plot_horizon(updated, args, filename=OUTPUT_FILENAME_HORIZON_TIME_ON, note=note)
+    if PLOT_CHARACTERISTIC_STRAIN and PLOT_HORIZON:
+        _plot_detectability(updated, args, filename=OUTPUT_FILENAME_COMBINED_TIME_ON, note=note)
+    else:
+        _plot_characteristic_strain(updated, args, filename=OUTPUT_FILENAME_TIME_ON, note=note)
+        if PLOT_HORIZON:
+            _plot_horizon(updated, args, filename=OUTPUT_FILENAME_HORIZON_TIME_ON, note=note)
     report = dict(input="direct Psi4 FFT for both off and on", modes=analysis.MODES,
                   extended_mode=[2, 2], cases=reports,
                   off=[dict(mass=t.mass, distance=t.distance, snr=t.snr) for t in result.targets],
@@ -517,12 +747,14 @@ def main(argv=None):
         _plot_radius_comparison(result, args)
     if PLOT_METHOD_COMPARISON:
         _plot_method_comparison(result, args)
-    if PLOT_CHARACTERISTIC_STRAIN:
+    if PLOT_CHARACTERISTIC_STRAIN and PLOT_HORIZON:
+        _plot_detectability(result, args)
+    elif PLOT_CHARACTERISTIC_STRAIN:
         _plot_characteristic_strain(result, args)
+    elif PLOT_HORIZON:
+        _plot_horizon(result, args)
     if PLOT_SHIBATA_COMPARISON:
         _plot_characteristic_strain(result, args, fixed_source=True)
-    if PLOT_HORIZON:
-        _plot_horizon(result, args)
     if PLOT_TIME_COMPARISON:
         _plot_time_on(result, args)
 

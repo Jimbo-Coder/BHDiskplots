@@ -72,7 +72,58 @@ Paper figures keep stable LaTeX-facing names in `figures/`; individual
 products go to `figures/A1/` through `figures/B3/`. Nothing under `figures/`
 is tracked.
 
+## Compactness comparison
+
+The comparison is reproducible from this checkout: the full COCAL
+`bhtphyseq.dat` inputs are already included under `data/initial_profiles/`.
+No Anvil simulation output or GW cache is required. From the repository root:
+
+```bash
+uv sync
+uv run python -m wip_plots.disk_compactness_comparison --sequences
+# Same overlay plus a full-sequence overview above it:
+uv run python -m wip_plots.disk_compactness_comparison --sequences --overview
+# Original comparison without sequence overlays/overview:
+uv run python -m wip_plots.disk_compactness_comparison --no-sequences
+```
+
+On Anvil, use the normal plotting environment and `python` instead of
+`uv run python`. The registered `run_wip.py shibata` command includes sequences
+by default; `INCLUDE_SEQUENCES` at the top of the plot module controls that
+default. Existing TeX/Palatino rendering is retained and requires the normal
+TeX Live installation, including Palatino fonts.
+
+Every run saves PNG/PDF variants together in `figures/wip/compactness/`:
+`reference`, `selected_only`, `sequences_zoom`, and `sequences_overview`.
+The stable `figures/wip/disk_compactness_comparison.{png,pdf}` paper-facing files
+use the selected options (default: the sequence overlay without an overview).
+The comparison remains **3.75 inches wide** and 3 inches high. With `--overview`
+it is 4.2 inches high: a small overview shows all 17 A and 43 B models, and the
+main comparison retains its low-mass zoom. Light circles/solid
+lines identify sequence A; light triangles/dashed lines identify sequence B.
+Coloured labelled markers identify the evolved models: A1/A2/A3 are sequence
+models 1/5/7, and B1/B2/B3 are models 28/32/35.
+
+The parser reads the first value on `Rest, proper mass` (rest mass, not proper
+mass), the first coordinate on `Outer point (width)`, and each model's own
+`Black hole mass (M)`. It preserves sequence order, including the high-mass
+branches that turn back in radius, and verifies the six evolved coordinates
+against the existing full-precision comparison values. Both plotted coordinates
+are normalized by the initial BH mass, not total ADM mass.
+
 ## GW conventions
+
+The combined detectability figure is 7 inches wide, with distance reach above
+characteristic strain, exterior legends and lettered source examples following
+Wessel Fig. 10. Related exports live together in `figures/gw/detectability/` as
+`measured` and `conditional` PNG/PDF variants, while the existing
+`figures/gw/gw_detectability_combined{,_time_on}` filenames remain available.
+Their generated `_caption.tex` and `_examples.json` companions
+give masses, luminosity distances, redshifts and SNRs. Examples (a)/(d) use
+fixed 50 Msun/100 Mpc and 10 Msun/50 Mpc scales. Examples (b)/(c) use 1000/1e5
+Msun and solve the uppermost DECIGO/LISA SNR=8 distances among the plotted cases.
+Exact example masses are included in the reach curves. Conditional-tail figures
+solve their own threshold distances; they are explicitly labelled as conditional.
 
 - Mass: `disk_to_bh_mass_ratio` is M0_disk/M_BH; `mlittle` is the initial BH
   mass in code units (G = c = M_sun = 1); `gw_madm` is the total ADM mass,

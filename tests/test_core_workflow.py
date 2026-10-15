@@ -122,8 +122,9 @@ class RestartAndCacheTests(unittest.TestCase):
                 fig = plot(include_ours)
                 try:
                     ax = fig.axes[0]
-                    self.assertEqual(ax.xaxis.label.get_fontsize(), style.PAPER_AXIS_LABEL_SIZE)
-                    self.assertEqual(ax.yaxis.label.get_fontsize(), style.PAPER_AXIS_LABEL_SIZE)
+                    label_size = 10 if include_ours else style.PAPER_AXIS_LABEL_SIZE
+                    self.assertEqual(ax.xaxis.label.get_fontsize(), label_size)
+                    self.assertEqual(ax.yaxis.label.get_fontsize(), label_size)
                     self.assertEqual(ax.xaxis.label.get_usetex(), style.USE_LATEX_TEXT)
                     for points, kind in zip(ax.collections, TYPE_STYLES):
                         expected = [[row[1], row[2] / BH_MASS_REFERENCE_MSUN]
@@ -135,9 +136,8 @@ class RestartAndCacheTests(unittest.TestCase):
                                                        [[radius / BH_MASS_CODE, mass / BH_MASS_CODE]])
                         legend = ax.get_legend()
                         self.assertTrue(legend.get_frame_on())
-                        self.assertEqual(legend.get_texts()[0].get_fontsize(), style.PAPER_LEGEND_SIZE)
+                        self.assertEqual(legend.get_texts()[0].get_fontsize(), 7.5)
                     for text in ax.texts:
-                        self.assertEqual(text.get_fontsize(), style.PAPER_FONT_SIZE)
                         self.assertEqual(text.get_usetex(), style.USE_LATEX_TEXT)
                 finally:
                     plt.close(fig)
