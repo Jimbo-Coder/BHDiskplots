@@ -439,17 +439,18 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
     if note and example_labels == "key":
         fig.text(.13, .008, note.replace("\n", "; "), ha="left", va="bottom", fontsize=9)
     elif note:
-        fig.text(.80, .72, note.replace(": conditional ", ": conditional\n"),
-                 ha="left", va="top", fontsize=8)
-    # Independent mass/frequency axes; align both plotting areas and reserve
-    # the right margin for the distance panel's existing redshift axis.
+        fig.text(.50, .515, note.replace("\n", "; "),
+                 ha="center", va="center", fontsize=8)
+    # Use the full width, allowing only space for the right redshift axis.
+    # The spectrum's empty corners accommodate both keys without hiding data.
     bottom = .23 + .02 * extra_rows if example_labels == "key" else .13
-    gap = .66 if example_labels == "inline" else .40
-    fig.subplots_adjust(left=.12, right=.74, bottom=bottom, top=.97, hspace=gap)
+    gap = .66 if example_labels == "inline" else .45 if note else .40
+    fig.subplots_adjust(left=.11, right=.89, bottom=bottom, top=.97, hspace=gap)
     case_handles = [Line2D([], [], color=source.color, linestyle=source.linestyle,
                            label=source.legend_name) for source in result.sources.values()]
     fig.legend(handles=case_handles, ncols=1 if len(case_handles)<=3 else 2,
-               loc="upper right", bbox_to_anchor=(.998, .97),
+               loc="lower left", bbox_to_anchor=(.015, .025),
+               bbox_transform=axes[1].transAxes,
                title="Simulation", fontsize=9, title_fontsize=9, handlelength=1.5,
                columnspacing=.7, handletextpad=.5, borderpad=.5,
                frameon=True, edgecolor="0.8")
@@ -457,9 +458,12 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
                                linewidth=1.05,
                                label=DETECTOR_CURVE_LABELS.get(d, DETECTOR_LABELS[d]))
                         for d in result.noise]
-    fig.legend(handles=detector_handles, loc="center right", bbox_to_anchor=(.998, .32),
-               title="Detector", fontsize=9, title_fontsize=9, handlelength=2.1,
-               frameon=True, edgecolor="0.8", borderpad=.5)
+    fig.legend(handles=detector_handles, ncols=2,
+               loc="upper right", bbox_to_anchor=(.985, .985),
+               bbox_transform=axes[1].transAxes,
+               title="Detector", fontsize=9, title_fontsize=9, handlelength=1.8,
+               columnspacing=.8, handletextpad=.5, labelspacing=.3,
+               frameon=True, edgecolor="0.8", borderpad=.4)
     if example_labels == "key":
         key_axis = fig.add_axes([.12, .035, .86, .11 + .02 * extra_rows])
         _example_key(key_axis, examples)
