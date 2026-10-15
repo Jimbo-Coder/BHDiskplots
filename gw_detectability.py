@@ -41,7 +41,7 @@ from gw import MODES as CACHED_MODES, mode_columns, read_strain_cache, strain_ca
 
 # ANALYSIS CHOICES: edit this block, not the functions below.
 # Reviewed on 2026-09-11 for six disks at the fixed test targets in the notes.
-# Example masses are fixed; DECIGO/LISA distances follow the best-case threshold.
+# Example masses are fixed; distances follow the best-case detector threshold.
 # See the measured
 # sensitivity table in notes/KNOWLEDGE.md; these are not universal error bounds.
 # Window/time/frequency bounds below refer to the default four-mode subset.
@@ -105,15 +105,15 @@ DETECTOR_BOUNDS = {
 
 # 6. Illustrative sources: (detector band, source M_BH/Msun, D_L/Mpc).
 # None selects the largest SNR=8 distance among the plotted cases in that band.
-# DECIGO/LISA examples therefore sit on their uppermost reach curves, following
-# Wessel Fig. 10. The stellar examples retain explicitly fixed distances.
+# All four examples sit on their uppermost detector reach curves, following
+# Wessel Fig. 10, at the fixed source masses below.
 # These are illustrative rescalings, not known sources or rate forecasts.
 # Rescale using the initial BH mass, NOT ADM mass: f_obs ~ 1/[M_BH(1+z)].
 EXAMPLE_TARGETS = (
-    ("ce", 50.0, 100.0),
+    ("ce", 50.0, None),
     ("decigo", 1.0e3, None),
     ("lisa", 1.0e5, None),
-    ("ce", 10.0, 50.0),  # Illustrative NS-BH formation scale, not a merger waveform.
+    ("ce", 10.0, None),  # Illustrative NS-BH formation scale, not a merger waveform.
 )
 # Fixed reference scale from Shibata et al. (2021), arXiv:2101.05440.
 # Not GW190521's inferred parameters or a waveform/model fit to that event.
@@ -272,7 +272,7 @@ def observed_target(spectra, mass, distance, redshift, curves, detector=None):
 
 
 def example_targets(spectra, curves, cosmology):
-    """Use fixed stellar distances and refined best-case DECIGO/LISA reaches."""
+    """Use refined best-case detector reaches, or explicitly fixed distances."""
     targets = []
     for detector, mass, distance in EXAMPLE_TARGETS:
         if detector not in active_detectors():

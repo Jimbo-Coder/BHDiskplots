@@ -149,12 +149,12 @@ def _example_caption(examples, note=None):
         r"refer to the same example sources: " + "; ".join(details) + ". "
         r"Each reported SNR is the largest among the plotted simulation cases and "
         r"detectors, using the selected-mode source-direction mean-amplitude "
-        r"spectrum. Examples (a) and (d) have fixed luminosity distances; "
-        r"(d) uses a $10\,M_\odot$ BH at $50\,{\rm Mpc}$ as an illustrative "
-        r"BH--NS remnant scale, not a simulated merger waveform. Examples "
-        r"(b) and (c) lie on the uppermost DECIGO and LISA SNR=8 reach curves, "
-        r"respectively, with distances solved using the same cosmology and "
-        r"source-direction mean-amplitude statistic as the plotted reaches. ")
+        r"spectrum. Each example lies on the uppermost SNR=8 reach curve "
+        r"at its fixed source mass: CE for (a) and (d), DECIGO for (b), and "
+        r"LISA for (c). Distances are solved using the same cosmology and "
+        r"source-direction mean-amplitude statistic as the plotted reaches. "
+        r"Example (d) uses a $10\,M_\odot$ BH as an illustrative BH--NS "
+        r"remnant scale, not a simulated merger waveform. ")
     for row in examples:
         if row["band_detector"] != row["detector"]:
             detector = DETECTOR_CURVE_LABELS.get(

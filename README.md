@@ -119,9 +119,9 @@ Wessel Fig. 10. Related exports live together in `figures/gw/detectability/` as
 `measured` and `conditional` PNG/PDF variants, while the existing
 `figures/gw/gw_detectability_combined{,_time_on}` filenames remain available.
 Their generated `_caption.tex` and `_examples.json` companions
-give masses, luminosity distances, redshifts and SNRs. Examples (a)/(d) use
-fixed 50 Msun/100 Mpc and 10 Msun/50 Mpc scales. Examples (b)/(c) use 1000/1e5
-Msun and solve the uppermost DECIGO/LISA SNR=8 distances among the plotted cases.
+give masses, luminosity distances, redshifts and SNRs. All four examples solve
+the uppermost SNR=8 distances among the plotted cases at fixed source masses:
+(a)/(d) use 50/10 Msun in CE; (b)/(c) use 1000/1e5 Msun in DECIGO/LISA.
 Exact example masses are included in the reach curves. Conditional-tail figures
 solve their own threshold distances; they are explicitly labelled as conditional.
 
