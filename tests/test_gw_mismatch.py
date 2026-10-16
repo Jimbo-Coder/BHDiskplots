@@ -132,7 +132,7 @@ class TestSelectedPair(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 result = gw_mismatch.main([
                     "--sims", "B3", "A1", "--radius-index", "6",
-                    "--cache-root", str(root), "--outdir", str(root), "--no-plot"])
+                    "--cache-dir", str(root), "--outdir", str(root), "--no-plot"])
             self.assertEqual([row["case"] for row in result["inputs"]], ["B3", "A1"])
             first, second = calculate.call_args.args[1:3]
             np.testing.assert_allclose(first, 3 * second, atol=1e-14)

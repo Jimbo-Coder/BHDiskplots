@@ -32,10 +32,10 @@ Shared cache readers, units and TeX/Palatino style remain shared.
 | Rebuild waveform caches | `python generate_gw.py` | `config.py` selects inputs/backend; `gw.py` implements reading and FFI |
 
 For the combined figure, read settings -> `analyze()` -> `plot_combined()`.
-The spectral equations and optional continuation model are in the same file;
-there is no separate rendering or model module to trace. All time-history
-views likewise live together in `wip_plots/gw_waveforms.py`, which reads each
-simulation once and reuses its radius caches.
+The measured calculation and main figure come first. Optional diagnostics
+and continuation fits follow in section 5 of the same file. Time-history
+views live together in `wip_plots/gw_waveforms.py`, which reads each simulation
+once and reuses its radius caches.
 
 Detectability `--plots` accepts `combined`, `strain`, `distance`, `radius`,
 `averaging`, `reference`, and `extrapolation`. Its default is measured
@@ -70,6 +70,7 @@ GW caches are ignored by Git. The [combined-figure guide](notes/run_combined_gw_
 lists the two files needed per case/radius for a separate clone and explains
 index 6 versus raw `Psi4_rad.mon.7`. Waveform histories also need the configured
 raw extraction files; observer-only and mismatch runs read strain caches.
+Both standalone GW analyses accept `--cache-dir PATH` for copied caches.
 The [mismatch guide](notes/gw_mismatch.md) gives its inputs and equations.
 Mismatch needs kuibit, installed in the normal Anvil environment; locally use
 `uv run --with kuibit==1.6.1 python gw_mismatch.py`.
@@ -119,7 +120,7 @@ in `config.py` only for an intentional plot-only run. Detached runs can use
 | `temporal_trial` | Explicit opt-in fit/join/on-off diagnostics |
 | `gw_mismatch` | Explicit opt-in manual/kuibit comparison |
 | `psi4`, `strain`, `*_minus_ml`, `strain_panel`, `strain_observer`, `gw_radiated` | Views in the waveform family |
-| `shibata` | Compactness comparison with sequences |
+| `compactness` | Compactness comparison with sequences |
 | `accretion`, `restmass` | Horizon flux/mass budget and total rest mass |
 | `mode_appendix`, `modes_345` | Matter modes, frequency comparisons and higher-mode growth |
 | `toomre` | Newtonian Q and Romeo/Meidt comparisons |

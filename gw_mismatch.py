@@ -284,7 +284,7 @@ def analyze(args):
         raise ValueError("Detector weighting needs an explicit --mass; white noise uses code units")
 
     # Read: original (2,2) FFI strain and its provenance, never raw simulation data.
-    waves, inputs = read_strain_pair(args.sims, args.cache_root, args.radius_index)
+    waves, inputs = read_strain_pair(args.sims, args.cache_dir, args.radius_index)
 
     # Prepare: crop to the shared interval, resample, remove means, taper and pad.
     time, h1, h2, selection = prepare_pair(
@@ -407,7 +407,7 @@ def main(argv=None):
     parser.add_argument("--sims", nargs=2, default=SIM_NAMES, metavar=("FIRST", "SECOND"))
     parser.add_argument("--radius-index", type=int, choices=range(9), default=RADIUS_INDEX,
                         help="Zero-based parfile index; A-case raw file label = index + 1")
-    parser.add_argument("--cache-root", type=Path, default=config.GW_WORK_ROOT)
+    parser.add_argument("--cache-dir", type=Path, default=config.GW_WORK_ROOT)
     parser.add_argument("--outdir", type=Path, default=config.PLOTS_DIR)
     parser.add_argument("--tag", help="Optional output subfolder for a parameter variant")
     parser.add_argument("--show", action="store_true")

@@ -150,7 +150,7 @@ Keep these methods on the same prepared signals when extending the comparison.
 
 From another computer, copy `rhphc.dat` and `strain_cache.json` for each chosen
 case/radius from Anvil into `gw_work/<case>_psi4<label>/`, or point
-`--cache-root` at that tree. For A/B cases, parfile index 6 means raw file label
+`--cache-dir` at that tree. For A/B cases, parfile index 6 means raw file label
 7, hence `A1_psi47`, for example. No raw simulation files are needed here.
 The diagnostic is excluded from default all-plot runs.
 

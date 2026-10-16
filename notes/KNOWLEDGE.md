@@ -30,6 +30,9 @@ cache metadata or invalid mass/radius scales raise errors. The direct and
 batch commands use identical options and one output per figure:
 `gw/detectability/radius_<index>` and `radius_<index>_conditional`. Compactness
 exports use `wip/compactness/`; no historical-name copies are written.
+Use `run_wip.py compactness` for that family and `--cache-dir PATH` for
+either standalone GW analysis. Optional detectability diagnostics follow
+the measured workflow and main figure in section 5 of the owning file.
 
 ## Face-On Strain at 100 Mpc (2026-09-14)
 
@@ -156,7 +159,7 @@ exports use `wip/compactness/`; no historical-name copies are written.
   Mac sync/review copies and their temporary recovery archive were removed;
   retain useful references here rather than accumulating old working trees.
 - The Shibata Fig. 5 comparison lives in
-  `wip_plots/disk_compactness_comparison.py` and runs as `run_wip.py shibata`
+  `wip_plots/disk_compactness_comparison.py` and runs as `run_wip.py compactness`
   or as part of the full non-movie workflow. Outputs belong in `figures/wip/`.
 
 ## Inputs and Units

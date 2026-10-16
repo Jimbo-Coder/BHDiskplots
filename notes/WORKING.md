@@ -4,6 +4,16 @@ Last updated: 2026-10-16
 
 ## Current Work
 
+- Oct16 usability polish: measured equations, `analyze()` and the combined
+  drawing now read in order, before the optional diagnostics in section 5.
+  Waveform case/radius selection uses explicit steps and retains one reader
+  per case. The WIP runner invokes the waveform family once and prints the
+  selected views together. The compactness batch name is `compactness`;
+  both standalone GW analyses use `--cache-dir`. Run/edit guides are updated
+  without forwarding commands or compatibility aliases. Numerical equations,
+  output names and physical conventions are preserved. Verification evidence:
+  run_logs/gw_polish_20261016/.
+
 - Oct16 final consolidation: `gw_detectability.py` owns measured analysis,
   validation sweeps, optional continuation equations and all related drawings.
   The circular extras import and duplicated case-reader loop are gone.

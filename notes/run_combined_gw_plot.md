@@ -119,7 +119,7 @@ The command-line parser is at the bottom. The few presentation options remain
 available, including `--example-labels key`, but they are outside the path
 through the calculation. The standard font/style and cache-generation readers
 remain shared with other figures. Optional validation sweeps and continuation
-fits are labelled in section 2 of this file; they do not run for the default command.
+fits are labelled in section 5 of this file; they do not run for the default command.
 The batch runner calls this same file directly; the additional diagnostic
 drawings are in section 5 and the single command is in section 6.
 

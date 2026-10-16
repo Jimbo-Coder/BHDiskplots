@@ -11,7 +11,7 @@ WIP_PLOTS = {
     "restmass": "wip_plots.restmass",
     "modes_345": "wip_plots.modes_high_all",
     "mode_appendix": "wip_plots.mode_appendix",
-    "shibata": "wip_plots.disk_compactness_comparison",
+    "compactness": "wip_plots.disk_compactness_comparison",
     "toomre": "wip_plots.toomre",
     "displacement": "wip_plots.disp_all",
     "horizon": "wip_plots.j_rs_all",
@@ -50,18 +50,22 @@ def main(argv=None):
     waveforms_done = False
     for name in requested:
         module_name = WIP_PLOTS[name]
-        print(f"running WIP plot: {name}")
+        if module_name == "wip_plots.gw_waveforms" and waveforms_done:
+            continue
         module = import_module(module_name)
-        if name == "temporal_trial":
-            module.temporal_main([])
-        elif module_name == "wip_plots.gw_waveforms":
-            if not waveforms_done:
-                module.main(["--kinds", *[key for key in requested if WIP_PLOTS[key] == module_name]])
-                waveforms_done = True
-        elif name == "detectability":
-            module.main(["--plots", *module.BATCH_PLOTS])
+        if module_name == "wip_plots.gw_waveforms":
+            kinds = [key for key in requested if WIP_PLOTS[key] == module_name]
+            print(f"running WIP waveforms: {', '.join(kinds)}")
+            module.main(["--kinds", *kinds])
+            waveforms_done = True
         else:
-            module.main([])
+            print(f"running WIP plot: {name}")
+            if name == "temporal_trial":
+                module.temporal_main([])
+            elif name == "detectability":
+                module.main(["--plots", *module.BATCH_PLOTS])
+            else:
+                module.main([])
 
 
 if __name__ == "__main__":

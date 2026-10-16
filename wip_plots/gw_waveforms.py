@@ -22,9 +22,12 @@ from config import (
     GW_MULTIMODE_PLOT_MODES, GW_MULTIMODE_LEFT_MODES, GW_MULTIMODE_RIGHT_MODES,
     all_sim_configs,
 )
-from gw import GWRun, names_with_massless, same_loaded_radius, subtract_waveforms, read_difference
+from gw import (
+    GWRun, names_with_massless, same_loaded_radius, subtract_waveforms,
+    read_difference, MODES as CACHED_MODES, read_strain_cache,
+    strain_cache_dir, mode_columns, _radiated_diagnostics,
+)
 from helpers import gw_units as units
-from gw import MODES as CACHED_MODES, read_strain_cache, strain_cache_dir, mode_columns, _radiated_diagnostics
 from gw_detectability import (
     FlatLambdaCDM, METERS_PER_M_SUN, METERS_PER_MPC, SECONDS_PER_M_SUN,
     MODES as RADIATED_MODES, TRANSIENT_CUTOFF_MBH,
@@ -38,8 +41,8 @@ from helpers.style import (
     interpanel_legend, INTERPANEL_LEGEND_INSET, FIGURE_LEGEND_BORDERAXESPAD,
 )
 
-# Default cases/modes/radii and units live in config.py. CLI overrides are at
-# the bottom; these settings control only appearance and output names.
+# Shared case/mode/radius defaults and units live in config.py. View-specific
+# physical choices and appearance are below; command overrides are at the end.
 TIME_XMIN = 0.0
 TIME_XMAX_PAD = 1.08
 SUBPLOT_MARGINS = {"left": 0.18, "right": 0.96, "bottom": 0.12, "top": 0.86}
@@ -559,21 +562,38 @@ def main(argv=None):
                          help="One parfile extraction index; default: configured comparison radii")
     args = command.parse_args(argv)
     setup(args)
-    kinds = tuple(args.kinds)
-    # Read: each radius uses its own matching waveform and difference caches.
-    modes = GW_PLOT_MODES
-    names = names_with_massless(args.sims) if any(k in OUTPUTS and k not in ("psi4", "strain") for k in kinds) else args.sims
+    kinds = args.kinds
     modal_kinds = [kind for kind in kinds if kind in OUTPUTS]
+    draw_panel = "strain_panel" in kinds
+    draw_radiated = "gw_radiated" in kinds
+    draw_observer = "strain_observer" in kinds
+
+    # Select cases. Only the difference views need the massless reference.
+    names = args.sims
+    if any(kind not in ("psi4", "strain") for kind in modal_kinds):
+        names = names_with_massless(names)
     if names is None and not modal_kinds:
         names = sum(CASE_GROUPS, ())
-    if args.radius_index is not None and (modal_kinds or set(kinds) & {"strain_panel", "gw_radiated"}):
-        radii = (args.radius_index,)
-    else:
-        radii = GW_COMPARISON_PARFILE_INDICES if modal_kinds or "strain_panel" in kinds else ()
-        if "gw_radiated" in kinds:
-            radii = tuple(dict.fromkeys((*radii, GW_OUTERMOST_PARFILE_INDEX)))
-    cases = all_sim_configs(names) if radii else []
-    # Observer-only runs use the strain caches directly below, without raw Psi4.
+
+    # Select radii. Modal/panel views compare the configured extractions;
+    # radiated diagnostics use the outer extraction. An explicit choice wins.
+    radii = []
+    if modal_kinds or draw_panel:
+        if args.radius_index is None:
+            radii.extend(GW_COMPARISON_PARFILE_INDICES)
+        else:
+            radii.append(args.radius_index)
+    single_radius = args.radius_index  # Observer and radiated views use one radius.
+    if single_radius is None:
+        single_radius = GW_OUTERMOST_PARFILE_INDEX
+    if draw_radiated and single_radius not in radii:
+        radii.append(single_radius)
+
+    # Read once per case, then reuse matching radius and difference caches.
+    # Observer-only runs read strain caches below and never open raw Psi4.
+    cases = []
+    if radii:
+        cases = all_sim_configs(names)
     runs = [GWRun(case) for case in cases]
     for radius in radii:
         sims = apply_styles([run.at_radius(radius) for run in runs])
@@ -588,20 +608,20 @@ def main(argv=None):
                 differences[sim.config.name] = read_difference(sim, reference)
         # Prepare, plot and save. waveform() above contains every data branch.
         for kind in modal_kinds:
-            for mode in modes:
+            for mode in GW_PLOT_MODES:
                 fig = plot(sims, mode, radius, kind, differences)
                 if fig is not None:
                     label_sim = sims[0] if kind in ("psi4", "strain") else reference
                     savefig(fig, args, OUTPUTS[kind].format(
                         mode=mode_tag(mode), radius=units.loaded_radius_tag(label_sim)))
 
-        if "strain_panel" in kinds:
-            for mode in modes:
+        if draw_panel:
+            for mode in GW_PLOT_MODES:
                 fig = plot_polarization_panel(sims, mode)
                 if fig is not None:
                     savefig(fig, args, PANEL_OUTPUT.format(
                         mode=mode_tag(mode), radius=units.loaded_radius_tag(sims[0])))
-        if "gw_radiated" in kinds and (args.radius_index is not None or radius == GW_OUTERMOST_PARFILE_INDEX):
+        if draw_radiated and radius == single_radius:
             disk_sims = [sim for sim in sims if sim.config.name != MASSLESS_SIM_NAME]
             if not disk_sims:
                 command.error("The radiated diagnostic requires a disk simulation")
@@ -611,9 +631,8 @@ def main(argv=None):
                 path = args.outdir / RADIATED_SUMMARY
                 path.write_text(json.dumps(summary, indent=2) + "\n")
                 print(f"saved {path}")
-    if "strain_observer" in kinds:
-        radius = GW_OUTERMOST_PARFILE_INDEX if args.radius_index is None else args.radius_index
-        save_observer_groups(args, radius)
+    if draw_observer:
+        save_observer_groups(args, single_radius)
 
 
 def individual_main(argv=None):
