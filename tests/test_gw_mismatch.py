@@ -101,12 +101,12 @@ class TestOptionalRegistration(unittest.TestCase):
     def test_default_excludes_mismatch(self):
         with patch.object(run_wip, "import_module") as imported:
             run_wip.main([])
-        self.assertNotIn("wip_plots.gw_mismatch", [c.args[0] for c in imported.call_args_list])
+        self.assertNotIn("gw_mismatch", [c.args[0] for c in imported.call_args_list])
 
     def test_explicit_runs_mismatch(self):
         with patch.object(run_wip, "import_module") as imported:
             run_wip.main(["gw_mismatch"])
-        imported.assert_called_once_with("wip_plots.gw_mismatch")
+        imported.assert_called_once_with("gw_mismatch")
         imported.return_value.main.assert_called_once_with([])
 
 

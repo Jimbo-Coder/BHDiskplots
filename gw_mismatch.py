@@ -342,7 +342,6 @@ def analyze(args):
         search="broad kuibit grid, independent kuibit-centered refinement; manual all-sample lags plus local refinement",
         implementation_sha256={
             "gw_mismatch.py": sha256(__file__),
-            "wip_plots/gw_mismatch.py": sha256(config.REPOSITORY_ROOT / "wip_plots/gw_mismatch.py"),
         })
     manual = result["manual_optimized"]["mismatch"]
     kuibit = result["grid_checks"][-1]["kuibit"]["mismatch"]

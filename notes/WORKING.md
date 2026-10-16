@@ -1,8 +1,18 @@
 # BHDiskplots Work Log
 
-Last updated: 2026-09-28
+Last updated: 2026-10-16
 
 ## Current Work
+
+- Oct16 plot-family consolidation: waveform histories, the polarization grid
+  and face-on observer strain now live together in `wip_plots/gw_waveforms.py`.
+  All detectability drawings now live in `gw_detectability.py`; optional fit
+  equations remain in `gw_detectability_extras.py`. Five redundant per-view
+  and forwarding scripts were removed. Runners import owning modules directly.
+  `python gw_detectability.py --plots radius averaging` selects measured checks;
+  the direct default remains the combined figure, and batch export names stay
+  stable. Verification is recorded in run_logs/gw_families_20261016/.
+
 
 - Sep28 full non-movie rerun at commit 485e76a (corrected detector response):
   login00, PID 1124179, 12:29-12:38 EDT, run_logs/nonmovie_20260928_122954.log

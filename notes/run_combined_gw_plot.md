@@ -2,10 +2,9 @@
 
 The complete measured workflow is **`gw_detectability.py`** in the repository
 root. It contains the cache readers, spectral calculation, detector weighting,
-SNR/reach calculation, and the combined figure in that order. The earlier
-`plot_gw_detectability.py` command remains only as a compatibility alias.
-It produces only the polished Wessel-style figure: luminosity-distance reach
-above characteristic strain. It reads cached, measured rPsi4, computes the
+SNR/reach calculation, and all detectability figures in that order.
+With no `--plots` option it produces the polished Wessel-style figure:
+luminosity-distance reach above characteristic strain. It reads cached, measured rPsi4, computes the
 spectra and detection distances, and draws the existing layout. No
 time-extrapolation fits, scalar files, extra radii or other figures are needed.
 
@@ -86,11 +85,6 @@ another machine, TeX/Palatino must already be installed and on PATH. The
 script reports a missing cache by its full path before running the calculation;
 it stops rather than silently dropping a requested case.
 
-The old `wip_plots/gw_detectability_all.py` is also directly runnable, but runs
-the larger diagnostic suite, including conditional tails. It is not the
-recommended entry point for editing this one figure. Without the collaborator's
-actual command/error, we cannot identify which dependency caused their failure.
-
 ## Read and edit the workflow
 
 These are the usual changes; each has one editing location:
@@ -126,18 +120,16 @@ available, including `--example-labels key`, but they are outside the path
 through the calculation. The standard font/style and cache-generation readers
 remain shared with other figures. Optional validation sweeps and continuation
 fits live in `gw_detectability_extras.py`; they do not run for this command.
-The WIP suite reuses the same calculation and renderer instead of maintaining
-another production implementation.
+The batch runner calls this same file directly; the additional diagnostic
+drawings are in section 5 and the single command is in section 6.
 
 ## Run a specific diagnostic
 
-The main combined figure still uses the root command above. For diagnostic
-subsets, the WIP runner has one list, `DEFAULT_PLOTS`, instead of interacting
-per-panel switches. Override it without editing the source:
+Use the same file for diagnostic subsets:
 
 ```bash
-python -m wip_plots.gw_detectability_all --plots radius averaging --sims A1 A3
-python -m wip_plots.gw_detectability_all --plots strain distance
+python gw_detectability.py --plots radius averaging --sims A1 A3
+python gw_detectability.py --plots strain distance
 ```
 
 | Plot name | Calculation and output |
@@ -150,8 +142,9 @@ python -m wip_plots.gw_detectability_all --plots strain distance
 | `reference` | Measured strain at the fixed 50 solar mass, 100 Mpc reference source |
 | `extrapolation` | Combined figure with the optional fitted continuation beyond the measured end; requires scalar data |
 
-The default list preserves the existing batch exports, including the labelled
-extrapolation. A selected measured diagnostic does not run that fit or load
+The direct command defaults to `combined`. `run_wip.py detectability` requests
+`BATCH_PLOTS`, preserving the existing batch exports and labelled extrapolation.
+A selected measured diagnostic does not run that fit or load
 unrequested radius/direction comparisons. Only `combined` and `distance` need
 the full measured mass-versus-distance scan. Illustrative strain sources still
 solve their own threshold distances, as described above.
@@ -163,7 +156,9 @@ For waveform histories, the five data-preparation branches are together in
 python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
 ```
 
-The available families are `psi4`, `strain`, `psi4_minus_ml`, `strain_minus_ml`
+Other views use the same file: `--kinds strain_panel` gives the six-case
+polarization grid; `--kinds strain_observer` gives physical face-on strain.
+The modal families are `psi4`, `strain`, `psi4_minus_ml`, `strain_minus_ml`
 and `strain_from_psi4_minus_ml`. The last two remain distinct: subtracting two
 FFI strains and integrating a Psi4 difference use different caches. The reader,
 subtraction, and normalization calls are visible in each branch. Shared units

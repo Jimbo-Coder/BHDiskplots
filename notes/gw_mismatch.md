@@ -3,7 +3,7 @@
 The complete runnable workflow is **`gw_mismatch.py`** in the repository root.
 It contains the settings and file reader, preparation, the independent manual
 calculation, the actual kuibit call, the analysis, and the plot. CLI overrides
-are at the bottom. `wip_plots/gw_mismatch.py` only forwards the old command.
+are at the bottom. Run this file directly; the WIP runner calls it directly too.
 
 The default comparison uses the stored time and strain columns directly.
 **No physical BH mass, distance or redshift is assigned. Neither waveform is

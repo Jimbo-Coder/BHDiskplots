@@ -81,7 +81,9 @@ class CombinedEntryPointTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 command.main(["--cache-dir", tmp, "--radius-index", "6", "--no-save"])
             calculate.assert_called_once_with(list(command.SIM_NAMES), radius_index=6,
-                                              cache_root=Path(tmp), strict=True)
+                                              cache_root=Path(tmp), strict=True,
+                                              compare_radius=False, compare_direction=False,
+                                              compute_horizons=True, include_reference=False)
             self.assertEqual(draw.call_args.kwargs["filename"], "gw/detectability/radius_6.png")
             self.assertEqual(draw.call_count, 1)
             self.assertEqual(analysis.OUTER_RADIUS_INDEX, 8)

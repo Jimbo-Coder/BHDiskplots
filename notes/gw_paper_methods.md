@@ -610,11 +610,10 @@ all transients, memory, or nonradiative contamination have been removed.
 
 Implementation pointers: [gw.py](../gw.py) (`reconstruct_strain`),
 [gw_detectability.py](../gw_detectability.py) (numbered analysis sections),
-[gw_strain_observer.py](../wip_plots/gw_strain_observer.py) (face-on time series),
+[gw_waveforms.py](../wip_plots/gw_waveforms.py) (face-on time series),
 [gw_radiated.py](../wip_plots/gw_radiated.py) (radiated E, J and frequency).
 The combined figure's formatting is in section 4 of
 [gw_detectability.py](../gw_detectability.py), alongside its calculation.
-[gw_detectability_all.py](../wip_plots/gw_detectability_all.py) draws additional
-diagnostics using that implementation. The separate coherent-mode comparison
+[gw_detectability.py](../gw_detectability.py) also draws its diagnostic views in section 5. The separate coherent-mode comparison
 is entirely in [gw_mismatch.py](../gw_mismatch.py), with its definition and
 inputs in [the mismatch note](gw_mismatch.md).

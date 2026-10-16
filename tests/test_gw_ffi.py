@@ -293,7 +293,7 @@ class ObserverStrainTests(unittest.TestCase):
 
     def test_face_on_projection_and_physical_units(self):
         from gw_detectability import METERS_PER_M_SUN, METERS_PER_MPC, SECONDS_PER_M_SUN
-        from wip_plots.gw_strain_observer import observer_waveform
+        from wip_plots.gw_waveforms import observer_waveform
 
         case, strain = self.waveform()
         time, hp, hc, peak = observer_waveform(case, strain, source_mass=50., distance=100.,
@@ -304,8 +304,27 @@ class ObserverStrainTests(unittest.TestCase):
         np.testing.assert_allclose(time, (np.arange(5.) - 2) * 50 * SECONDS_PER_M_SUN, atol=1e-18)
         self.assertEqual(peak, 2.)
 
+    def test_observer_drawing_keeps_physical_header_and_both_channels(self):
+        import matplotlib.pyplot as plt
+        from wip_plots.gw_waveforms import observer_waveform, plot_observer_group
+
+        case, strain = self.waveform()
+        values = observer_waveform(case, strain, min_tret_mbh=0.)
+        with plt.rc_context({"text.usetex": False, "font.family": "serif"}):
+            fig = plot_observer_group([case], {case.name: values})
+            try:
+                fig.canvas.draw()
+                self.assertEqual(len(fig.axes), 1)
+                self.assertEqual(len(fig.axes[0].lines), 2)
+                for line, channel in zip(fig.axes[0].lines, values[1:3]):
+                    np.testing.assert_array_equal(line.get_ydata(), channel)
+                self.assertIn("Mpc", fig.texts[0].get_text())
+                self.assertIn("M_", fig.texts[0].get_text())
+            finally:
+                plt.close(fig)
+
     def test_mass_distance_redshift_and_code_mass_scaling(self):
-        from wip_plots.gw_strain_observer import observer_waveform
+        from wip_plots.gw_waveforms import observer_waveform
 
         case, strain = self.waveform()
         time, hp, _, _ = observer_waveform(case, strain, min_tret_mbh=0.)
@@ -322,7 +341,7 @@ class ObserverStrainTests(unittest.TestCase):
         np.testing.assert_allclose(other[1], hp, atol=0)
 
     def test_time_selection_does_not_extrapolate_or_force_endpoints_to_zero(self):
-        from wip_plots.gw_strain_observer import observer_waveform
+        from wip_plots.gw_waveforms import observer_waveform
 
         case, strain = self.waveform()
         time, hp, _, peak = observer_waveform(case, strain, min_tret_mbh=1.5, align_peak=False)
@@ -337,7 +356,7 @@ class ObserverStrainTests(unittest.TestCase):
 
     def test_all_mode_selection_uses_only_m_two_at_pole(self):
         from gw import mode_columns
-        from wip_plots.gw_strain_observer import observer_waveform
+        from wip_plots.gw_waveforms import observer_waveform
 
         case, strain = self.waveform()
         subset = observer_waveform(case, strain, min_tret_mbh=0.)

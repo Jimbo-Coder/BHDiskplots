@@ -250,17 +250,17 @@ class RestartAndCacheTests(unittest.TestCase):
             self.assertTrue(unrelated.exists())
 
     def test_nonpaper_outputs_are_routed_out_of_figure_root(self):
+        import gw_detectability
         from config import GW_DIFFERENCE_OUTPUT_SUBDIR
         from wip_plots import (
             disp_all,
-            gw_detectability_all,
             gw_waveforms,
         )
 
         self.assertTrue(disp_all.OUTPUT_FILENAME.startswith("wip/"))
         self.assertTrue(all(path.startswith("gw/") for path in gw_waveforms.OUTPUTS.values()))
         self.assertTrue(
-            gw_detectability_all.OUTPUT_FILENAME_CHARACTERISTIC_STRAIN.startswith("gw/")
+            gw_detectability.OUTPUT_FILENAME_CHARACTERISTIC_STRAIN.startswith("gw/")
         )
         self.assertEqual(GW_DIFFERENCE_OUTPUT_SUBDIR, "gw/difference")
 
@@ -291,30 +291,48 @@ class RestartAndCacheTests(unittest.TestCase):
         self.assertEqual(GW_COMPARISON_PARFILE_INDICES, (4, 8))
 
     def test_combined_time_domain_gw_plots_generate_both_radii(self):
-        module_names = (
-            "wip_plots.gw_waveforms",
-            "wip_plots.gw_strain_polarization_panel",
-        )
-        for module_name in module_names:
-            with self.subTest(module=module_name):
-                module = import_module(module_name)
-                with (
-                    mock.patch.object(module, "setup"),
-                    mock.patch.object(module, "load_gw_sims", return_value=[
-                        SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.0)
-                    ]) as load,
-                    mock.patch.object(module, "plot", return_value=mock.Mock()),
-                    mock.patch.object(module, "savefig") as save,
-                ):
-                    if module_name.endswith("gw_waveforms"):
-                        module.main([], kinds=["strain"])
-                    else:
-                        module.main([])
+        from wip_plots import gw_waveforms as plots
+
+        for kind, drawing_function in (("strain", "plot"), ("strain_panel", "plot_polarization_panel")):
+            with self.subTest(kind=kind), \
+                    mock.patch.object(plots, "setup"), \
+                    mock.patch.object(plots, "load_gw_sims", return_value=[
+                        SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.)
+                    ]) as load, \
+                    mock.patch.object(plots, drawing_function, return_value=mock.Mock()), \
+                    mock.patch.object(plots, "savefig") as save:
+                plots.main([], kinds=[kind])
                 self.assertEqual(
                     [call.kwargs["psi4_parfile_index"] for call in load.call_args_list],
-                    list(GW_COMPARISON_PARFILE_INDICES),
-                )
+                    list(GW_COMPARISON_PARFILE_INDICES))
                 self.assertEqual(save.call_count, 8)
+
+    def test_waveform_views_share_each_radius_read(self):
+        from wip_plots import gw_waveforms as plots
+
+        sim = SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.)
+        with mock.patch.object(plots, "setup"), \
+                mock.patch.object(plots, "load_gw_sims", return_value=[sim]) as load, \
+                mock.patch.object(plots, "plot", return_value=mock.Mock()), \
+                mock.patch.object(plots, "plot_polarization_panel", return_value=mock.Mock()), \
+                mock.patch.object(plots, "savefig") as save:
+            plots.main(["--kinds", "strain", "strain_panel", "--sims", "A1"])
+        self.assertEqual(load.call_count, 2)
+        self.assertEqual(save.call_count, 16)
+
+
+    def test_observer_selection_does_not_open_raw_psi4(self):
+        from wip_plots import gw_waveforms as plots
+
+        with mock.patch.object(plots, "setup"), \
+                mock.patch.object(plots, "load_gw_sims") as raw, \
+                mock.patch.object(plots, "save_observer_groups") as observer:
+            plots.main(["--kinds", "strain_observer", "--radius-index", "6", "--sims", "A1"])
+        raw.assert_not_called()
+        observer.assert_called_once()
+        self.assertEqual(observer.call_args.args[1], 6)
+        self.assertEqual(observer.call_args.args[0].sims, ["A1"])
+
 
     def test_waveform_command_selects_one_family_and_radius_without_ml(self):
         from wip_plots import gw_waveforms as plots
@@ -401,7 +419,7 @@ class RestartAndCacheTests(unittest.TestCase):
 
         modules = [
             *(f"paper_plots.{name}" for name in PAPER_PLOTS.values()),
-            *(f"wip_plots.{name}" for name in WIP_PLOTS.values()),
+            *WIP_PLOTS.values(),
         ]
         for module_name in modules:
             with self.subTest(module=module_name):

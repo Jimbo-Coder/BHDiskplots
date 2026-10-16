@@ -154,7 +154,7 @@ class WesselTailTests(unittest.TestCase):
 
     def test_temporal_fit_shows_only_data_and_models(self):
         import matplotlib.pyplot as plt
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
         trial = self.trial()
         trial.density_time = trial.time
         trial.density_modes = np.ones((trial.time.size, 2))*.01
@@ -187,7 +187,7 @@ class WesselTailTests(unittest.TestCase):
     def test_transition_separates_blending_from_future_extrapolation(self):
         from dataclasses import replace
         import matplotlib.pyplot as plt
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
         trial = self.trial()
         before = trial.extended_strain.copy()
         case = replace(config.all_sim_configs(["A1"])[0], Pc=2.)
@@ -247,7 +247,7 @@ class WesselTailTests(unittest.TestCase):
     def test_accepted_trial_renders_fit_join_and_comparison(self):
         from dataclasses import replace
         from helpers import style
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
         trial = self.trial()
         case = replace(config.all_sim_configs(["A1"])[0], Pc=2.)
         with tempfile.TemporaryDirectory() as tmp, \
@@ -304,7 +304,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         np.testing.assert_allclose(analysis._log_interpolate_curve(curve, f)**2/robson, 2.0, rtol=2e-3)
 
     def test_source_scale_labels_use_latex_scientific_notation(self):
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
         self.assertEqual(analysis._scientific_label(1e5), r"10^{5}")
         self.assertEqual(analysis._scientific_label(500), r"5\times 10^{2}")
         self.assertEqual(analysis._scientific_label(.025), r"2.5\times 10^{-2}")
@@ -324,7 +324,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
     def test_four_source_scales_share_one_axis_and_one_legend(self):
         import matplotlib.pyplot as plt
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
         frequency = np.geomspace(.001, 100, 40)
         source = SimpleNamespace(color="blue", linestyle="-", legend_name="A1")
         targets = [SimpleNamespace(detector=d, mass=m, distance=r or 100.,
@@ -369,7 +369,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
     def test_combined_layout_preserves_seven_inch_width_and_writes_source_metadata(self):
         import matplotlib.pyplot as plt
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
         frequency = np.geomspace(.001, 1000., 100)
         source = SimpleNamespace(color="blue", linestyle="-", legend_name="A3")
         targets = [SimpleNamespace(detector=d, mass=m, distance=r or 100., redshift=.02,
@@ -398,7 +398,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
     def test_curved_detector_label_is_finite_and_preserves_limits(self):
         import matplotlib.pyplot as plt
         from matplotlib.colors import to_rgba
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
 
         with plt.rc_context({"text.usetex": False, "font.family": "serif"}):
             fig, ax = plt.subplots()
@@ -420,7 +420,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
     def test_horizon_redshift_axis_tracks_distance_and_keeps_data_unchanged(self):
         import matplotlib.pyplot as plt
         from helpers.style import PAPER_PLOT_STYLE
-        from wip_plots import gw_detectability_all as plots
+        import gw_detectability as plots
 
         masses = np.geomspace(1., 1e7, 12)
         distances = np.geomspace(.05, 1000., 12)
@@ -430,7 +430,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         cosmology = FlatLambdaCDM()
         style = {**PAPER_PLOT_STYLE, "text.usetex": False, "font.family": "DejaVu Serif"}
         for filename, note in ((plots.OUTPUT_FILENAME_HORIZON, None),
-                               (plots.OUTPUT_FILENAME_HORIZON_TIME_ON, "A1: conditional tail")):
+                               ("gw/test_conditional_horizon.png", "A1: conditional tail")):
             with self.subTest(filename=filename), plt.rc_context(style), \
                     mock.patch.object(plots, "savefig") as save:
                 plots._plot_horizon(result, SimpleNamespace(), filename=filename, note=note)
@@ -773,50 +773,53 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
 class DiagnosticSelectionTests(unittest.TestCase):
     def test_selected_measured_plots_do_not_run_other_diagnostics(self):
-        from wip_plots import gw_detectability_all as plots
-
         result = SimpleNamespace(sources={}, inner={"A1": object()})
-        # Editing the default list must not remove an explicit CLI choice.
-        with mock.patch.object(plots, "DEFAULT_PLOTS", ("combined",)):
-            for requested in (("combined",), ("strain",), ("distance",),
-                              ("radius", "averaging"), ("reference",)):
-                with self.subTest(plots=requested), \
-                        mock.patch.object(analysis, "analyze", return_value=result) as analyze, \
-                        mock.patch.object(analysis, "plot_combined") as combined, \
-                        mock.patch.multiple(
-                            plots, setup=mock.DEFAULT, apply_styles=mock.DEFAULT,
-                            _plot_radius_comparison=mock.DEFAULT, _plot_method_comparison=mock.DEFAULT,
-                            _plot_characteristic_strain=mock.DEFAULT, _plot_horizon=mock.DEFAULT,
-                            _plot_extrapolation=mock.DEFAULT) as draw:
-                    plots.main(["--plots", *requested])
-                    analyze.assert_called_once_with(
-                        None, compare_radius="radius" in requested,
-                        compare_direction="averaging" in requested,
-                        compute_horizons=bool(set(requested) & {"combined", "distance"}),
-                        include_reference="reference" in requested)
-                    self.assertEqual(combined.call_count, int("combined" in requested))
-                    self.assertEqual(draw["_plot_radius_comparison"].call_count, int("radius" in requested))
-                    self.assertEqual(draw["_plot_method_comparison"].call_count, int("averaging" in requested))
-                    self.assertEqual(draw["_plot_horizon"].call_count, int("distance" in requested))
-                    self.assertEqual(draw["_plot_characteristic_strain"].call_count,
-                                     int("strain" in requested or "reference" in requested))
-                    draw["_plot_extrapolation"].assert_not_called()
+        for requested in (("combined",), ("strain",), ("distance",),
+                          ("radius", "averaging"), ("reference",)):
+            with self.subTest(plots=requested), \
+                    mock.patch.object(analysis, "analyze", return_value=result) as analyze, \
+                    mock.patch.object(analysis, "plot_combined") as combined, \
+                    mock.patch("pathlib.Path.is_file", return_value=True), \
+                    mock.patch.multiple(
+                        analysis, apply_paper_style=mock.DEFAULT, apply_styles=mock.DEFAULT,
+                        _plot_radius_comparison=mock.DEFAULT, _plot_method_comparison=mock.DEFAULT,
+                        _plot_characteristic_strain=mock.DEFAULT, _plot_horizon=mock.DEFAULT,
+                        _plot_extrapolation=mock.DEFAULT) as draw:
+                analysis.main(["--plots", *requested, "--no-save", "--sims", "A1"])
+                analyze.assert_called_once_with(
+                    ["A1"], radius_index=analysis.OUTER_RADIUS_INDEX,
+                    cache_root=config.GW_WORK_ROOT, strict=True,
+                    compare_radius="radius" in requested,
+                    compare_direction="averaging" in requested,
+                    compute_horizons=bool(set(requested) & {"combined", "distance"}),
+                    include_reference="reference" in requested)
+                self.assertEqual(combined.call_count, int("combined" in requested))
+                self.assertEqual(draw["_plot_radius_comparison"].call_count, int("radius" in requested))
+                self.assertEqual(draw["_plot_method_comparison"].call_count, int("averaging" in requested))
+                self.assertEqual(draw["_plot_horizon"].call_count, int("distance" in requested))
+                self.assertEqual(draw["_plot_characteristic_strain"].call_count,
+                                 int("strain" in requested or "reference" in requested))
+                draw["_plot_extrapolation"].assert_not_called()
 
-    def test_default_retains_the_existing_batch_outputs(self):
-        from wip_plots import gw_detectability_all as plots
-
+    def test_batch_retains_the_existing_outputs(self):
         result = SimpleNamespace(sources={}, inner={"A1": object()})
         with mock.patch.object(analysis, "analyze", return_value=result) as analyze, \
                 mock.patch.object(analysis, "plot_combined") as combined, \
+                mock.patch("pathlib.Path.is_file", return_value=True), \
                 mock.patch.multiple(
-                    plots, setup=mock.DEFAULT, apply_styles=mock.DEFAULT,
+                    analysis, apply_paper_style=mock.DEFAULT, apply_styles=mock.DEFAULT,
                     _plot_radius_comparison=mock.DEFAULT, _plot_method_comparison=mock.DEFAULT,
                     _plot_characteristic_strain=mock.DEFAULT, _plot_horizon=mock.DEFAULT,
                     _plot_extrapolation=mock.DEFAULT) as draw:
-            plots.main([])
-        analyze.assert_called_once_with(None, compare_radius=True, compare_direction=True,
+            analysis.main(["--no-save"], batch=True)
+        analyze.assert_called_once_with(list(analysis.SIM_NAMES),
+                                        radius_index=analysis.OUTER_RADIUS_INDEX,
+                                        cache_root=config.GW_WORK_ROOT, strict=True,
+                                        compare_radius=True, compare_direction=True,
                                         compute_horizons=True, include_reference=True)
-        combined.assert_called_once_with(result, mock.ANY)
+        combined.assert_called_once_with(result, mock.ANY,
+                                         filename=analysis.OUTPUT_FILENAME_COMBINED,
+                                         example_labels=analysis.EXAMPLE_LABEL_STYLE)
         for name in ("_plot_radius_comparison", "_plot_method_comparison",
                      "_plot_characteristic_strain", "_plot_extrapolation"):
             draw[name].assert_called_once()

@@ -7,26 +7,26 @@ from importlib import import_module
 
 
 WIP_PLOTS = {
-    "accretion": "accretion",
-    "restmass": "restmass",
-    "modes_345": "modes_high_all",
-    "mode_appendix": "mode_appendix",
-    "shibata": "disk_compactness_comparison",
-    "toomre": "toomre",
-    "displacement": "disp_all",
-    "horizon": "j_rs_all",
-    "irreducible_mass": "mirr_all",
-    "radii": "rs_minmax_all",
-    "psi4": "gw_waveforms",
-    "psi4_minus_ml": "gw_waveforms",
-    "strain": "gw_waveforms",
-    "strain_panel": "gw_strain_polarization_panel",
-    "strain_observer": "gw_strain_observer",
-    "gw_radiated": "gw_radiated",
-    "strain_minus_ml": "gw_waveforms",
-    "strain_from_psi4_minus_ml": "gw_waveforms",
-    "detectability": "gw_detectability_all",
-    "temporal_trial": "gw_detectability_all",  # Explicit opt-in until the model is supported.
+    "accretion": "wip_plots.accretion",
+    "restmass": "wip_plots.restmass",
+    "modes_345": "wip_plots.modes_high_all",
+    "mode_appendix": "wip_plots.mode_appendix",
+    "shibata": "wip_plots.disk_compactness_comparison",
+    "toomre": "wip_plots.toomre",
+    "displacement": "wip_plots.disp_all",
+    "horizon": "wip_plots.j_rs_all",
+    "irreducible_mass": "wip_plots.mirr_all",
+    "radii": "wip_plots.rs_minmax_all",
+    "psi4": "wip_plots.gw_waveforms",
+    "psi4_minus_ml": "wip_plots.gw_waveforms",
+    "strain": "wip_plots.gw_waveforms",
+    "strain_panel": "wip_plots.gw_waveforms",
+    "strain_observer": "wip_plots.gw_waveforms",
+    "gw_radiated": "wip_plots.gw_radiated",
+    "strain_minus_ml": "wip_plots.gw_waveforms",
+    "strain_from_psi4_minus_ml": "wip_plots.gw_waveforms",
+    "detectability": "gw_detectability",
+    "temporal_trial": "gw_detectability",  # Explicit opt-in until the model is supported.
     "gw_mismatch": "gw_mismatch",  # Requires kuibit; explicit opt-in diagnostic.
 }
 
@@ -51,13 +51,15 @@ def main(argv=None):
     for name in requested:
         module_name = WIP_PLOTS[name]
         print(f"running WIP plot: {name}")
-        module = import_module(f"wip_plots.{module_name}")
+        module = import_module(module_name)
         if name == "temporal_trial":
             module.temporal_main([])
-        elif module_name == "gw_waveforms":
+        elif module_name == "wip_plots.gw_waveforms":
             if not waveforms_done:
                 module.main([], kinds=[key for key in requested if WIP_PLOTS[key] == module_name])
                 waveforms_done = True
+        elif name == "detectability":
+            module.main([], batch=True)
         else:
             module.main([])
 

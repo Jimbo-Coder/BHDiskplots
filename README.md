@@ -17,7 +17,8 @@ read-only simulation data (scalars, Psi4, 2D slices)
 | `gw.py` | Psi4 reading, restart merging, FFI strain, waveform caches |
 | `generate_gw.py` | The only entry point that writes the GW cache (`gw_work/`) |
 | `gw_detectability.py` | Measured GW workflow and combined figure: inputs, spectrum, SNR/reach, then Matplotlib |
-| `gw_detectability_extras.py` | Optional radius/method checks and conditional continuation fits |
+| `gw_detectability_extras.py` | Numerical experiments: validation sweeps and conditional continuation fits |
+| `wip_plots/gw_waveforms.py` | All time-domain waveform views: modal histories, ML differences, polarization panels, observer strain, radius/mode comparisons |
 | `gw_mismatch.py` | Two selected strain modes: file reader, manual/kuibit comparison, then diagnostic plot |
 | `paper_plots/` | Approved paper figures, registered in `run_paper.py` |
 | `wip_plots/` | Exploratory figures, registered in `run_wip.py` |
@@ -34,18 +35,19 @@ plot's relevant section. GW numerical choices are at the top of the workflow;
 appearance choices sit beside the plotting code. The command-line parsers are
 at the bottom. Shared style and data readers keep the established conventions.
 
-## The three usual GW tasks
+## GW commands
 
 Run these from the repository root in the plotting environment:
 
 | Task | Command | Where to edit |
 | --- | --- | --- |
 | Combined strain + distance figure | `python gw_detectability.py --radius-index 6` | `gw_detectability.py`: section 1 for scientific choices, section 4 for appearance |
+| Strain time histories | `python -m wip_plots.gw_waveforms --kinds strain` | `gw_waveforms.py`: preparation, observer projection, Matplotlib, commands |
 | Waveform mismatch, both methods | `python gw_mismatch.py --sims A1 A3` | `gw_mismatch.py`: settings, reader, calculations, analysis, plot |
 | Rebuild caches after a data update | `python generate_gw.py` | `config.py` selects cases/backend; `gw.py` implements the reader and FFI |
 
-The first two commands only read GW caches. They do not launch the other plots
-or regenerate waveforms. For a new computer, see the [combined-figure guide](notes/run_combined_gw_plot.md)
+The detectability and mismatch commands only read GW caches. They do not
+launch the other plots or regenerate waveforms. For a new computer, see the [combined-figure guide](notes/run_combined_gw_plot.md)
 or [mismatch guide](notes/gw_mismatch.md) for the exact input files.
 The mismatch additionally needs kuibit, which is already in the usual Anvil
 environment. Locally use `uv run --with kuibit==1.6.1 python gw_mismatch.py`.
@@ -97,19 +99,28 @@ To run only the GW diagnostics you need, use their direct commands:
 
 ```bash
 # Radius/averaging checks, without extrapolation or a full mass/distance scan:
-python -m wip_plots.gw_detectability_all --plots radius averaging --sims A1 A3
+python gw_detectability.py --plots radius averaging --sims A1 A3
 # Only strain histories at one extraction index:
 python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
 ```
 
-`DEFAULT_PLOTS` near the top of `gw_detectability_all.py` is the single list
-of default diagnostic outputs. Choices are `combined`, `strain`, `distance`,
-`radius`, `averaging`, `reference` and `extrapolation`. The existing batch
-default includes extrapolation; selecting measured plots alone never runs its
-fits or reads scalar data. The [editing guide](notes/run_combined_gw_plot.md)
-explains each diagnostic. Waveform preparation is together in `waveform()` in
-`gw_waveforms.py`; `OUTPUTS` selects the five existing waveform families.
-Omitting the new options retains the usual batch selections and filenames.
+The same detectability file produces the combined figure and its checks;
+`--plots` chooses `combined`, `strain`, `distance`, `radius`, `averaging`,
+`reference` or `extrapolation`. Its default is the measured combined figure.
+`run_wip.py detectability` explicitly requests the `BATCH_PLOTS` suite,
+including the labelled extrapolation, and retains the usual paper export names.
+
+All time-history views belong to `wip_plots/gw_waveforms.py`. Use `--kinds`
+for modal `psi4`/`strain`, the three ML differences, `strain_panel`, or
+`strain_observer`. The actual preparation is in `waveform()` and
+`observer_waveform()`; drawing follows it and the command is at the bottom.
+The batch runner groups requested waveform views into one call, reading each
+radius once. Observer-only runs read the FFI strain caches directly.
+Energy/angular-momentum diagnostics stay in `gw_radiated.py`: they perform a
+different calculation rather than presenting another waveform view.
+
+The five former per-view/forwarding scripts were removed. Use these owning
+files directly; there are no compatibility command wrappers.
 
 ## Compactness comparison
 
@@ -166,8 +177,7 @@ For A cases index 6 means raw `Psi4_rad.mon.7`; index 7 means `.8`.
 Cached GW inputs are not included in GitHub. See
 [the run/edit guide](notes/run_combined_gw_plot.md) for the two required
 files per case/radius. The calculation and drawing are together in
-`gw_detectability.py`; the parser is at the bottom. `plot_gw_detectability.py`
-is now a compatibility alias.
+`gw_detectability.py`; the parser is at the bottom.
 
 The combined detectability figure is 7 inches wide, with distance reach above
 characteristic strain, exterior legends and lettered source examples following

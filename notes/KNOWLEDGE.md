@@ -8,6 +8,23 @@ The [human GW proposal](human_gw_method.md) is preserved verbatim. Its seven
 steps and four-mode selection now organize the implementation; numerical
 window/cut and detector choices still require scientific review.
 
+## Current GW entry points (2026-10-16)
+
+| Task | Owning file and instructions |
+| --- | --- |
+| Measured combined strain/distance figure | `gw_detectability.py`; [run/edit guide](run_combined_gw_plot.md) |
+| Coherent two-mode mismatch, manual and kuibit | `gw_mismatch.py`; [equations and inputs](gw_mismatch.md) |
+| All waveform time-history views | `wip_plots/gw_waveforms.py` |
+| Detectability diagnostics and continuation fits | Drawings in `gw_detectability.py`; optional equations in `gw_detectability_extras.py` |
+| Raw Psi4 reading and waveform-cache generation | `gw.py`, run through `generate_gw.py` |
+
+The first two files contain their calculations and plotting; settings are
+labelled and CLI parsers are at the bottom. They do not need the diagnostic
+suite to make their main figure. Per-view polarization/observer/diagnostic
+modules and forwarding commands have been removed. The runners call the
+owning files directly. Dated sections below can describe earlier layouts
+and retain historical numbers.
+
 ## Face-On Strain at 100 Mpc (2026-09-14)
 
 - `./run_wip.py strain_observer` makes separate A/B three-row figures,
