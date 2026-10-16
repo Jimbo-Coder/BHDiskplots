@@ -59,6 +59,7 @@ uv run python -m unittest discover -s tests -t .
 | --- | --- | --- |
 | `detectability` | `gw/gw_detectability_*` | h_c vs noise, SNR=8 reach, Shibata 50 Msun/100 Mpc case, time-on variants |
 | `temporal_trial` | `<case>/gw_temporal_*`, `gw/temporal_trial.json` | Opt-in Wessel mass-driven (2,2) tail; not in default runs |
+| `gw_mismatch` | `wip/gw_mismatch/<weighting>/A1_A3.*` | Opt-in A1/A3 complex (2,2) mismatch: independent NumPy and public kuibit calculations; [settings and equations](notes/gw_mismatch.md) |
 | `gw_radiated` | `wip/gw_radiated.{png,json}` | Radiated E, J_z (detectability modes) and (2,2) frequency over f_orb |
 | `psi4`, `strain`, `*_minus_ml` | `gw/`, `gw/difference/` | Waveforms and disk-minus-ML differences |
 | `strain_panel`, `strain_observer` | `gw/` | Polarization panel; face-on strain at 100 Mpc |
@@ -112,6 +113,21 @@ against the existing full-precision comparison values. Both plotted coordinates
 are normalized by the initial BH mass, not total ADM mass.
 
 ## GW conventions
+
+For **just the polished combined distance + characteristic-strain figure**, use
+the short directly runnable script (in the normal plotting environment):
+
+```bash
+python plot_gw_detectability.py                   # current default: radius index 8
+python plot_gw_detectability.py --radius-index 6  # compare another extraction
+```
+
+Outputs are `figures/gw/detectability/radius_<index>.{png,pdf}`, with caption,
+example parameters and input paths alongside. Each index gets separate files.
+For A cases index 6 means raw `Psi4_rad.mon.7`; index 7 means `.8`.
+Cached GW inputs are not included in GitHub. See
+[the short run/edit guide](notes/run_combined_gw_plot.md) for the two required
+files per case/radius and exactly where to edit the scientific and plot settings.
 
 The combined detectability figure is 7 inches wide, with distance reach above
 characteristic strain, exterior legends and lettered source examples following

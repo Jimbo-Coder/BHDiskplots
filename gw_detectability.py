@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import config
 import json
+from pathlib import Path
 
 from dataclasses import dataclass
 from functools import cached_property
@@ -224,16 +225,19 @@ class DetectabilityResult:
     shibata: ObservedTarget
 
 
-def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True):
+def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True,
+            radius_index=None, cache_root=None, strict=False):
     """Run steps 1-7; return numerical results, without creating any figures."""
     print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
           f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
           f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, no tail", flush=True)
     # Steps 1-4: modes -> windowed FFT -> angular average -> dimensionless strain.
-    sources, representative = source_spectra(names, OUTER_RADIUS_INDEX, compare_direction)
+    radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
+    sources, representative = source_spectra(
+        names, radius_index, compare_direction, cache_root=cache_root, strict=strict)
     if not sources:
         raise ValueError("No valid direct-Psi4 spectra were produced")
-    inner = source_spectra(names, FIRST_RADIUS_INDEX)[0] if compare_radius else {}
+    inner = source_spectra(names, FIRST_RADIUS_INDEX, cache_root=cache_root, strict=strict)[0] if compare_radius else {}
     spectra = {name: source.spectrum for name, source in sources.items()}
 
     # Step 5: detector noise. Use exactly the same effective ASD for h_n and SNR.
@@ -299,7 +303,7 @@ def example_targets(spectra, curves, cosmology):
 
 
 # 1. Read matching, uniformly sampled r*Psi4 and retarded time.
-def read_rpsi4_modes(case, radius_index, modes=None):
+def read_rpsi4_modes(case, radius_index, modes=None, *, cache_root=None):
     """Read only the selected cache columns, not raw radii or integrated strain.
 
     The shared generator owns restart merging, file-index offsets, retarded
@@ -313,7 +317,8 @@ def read_rpsi4_modes(case, radius_index, modes=None):
         modes = CACHED_MODES
     modes = tuple(tuple(mode) for mode in modes)
     label = str(radius_index + case.gw_psi4_file_index_offset)
-    directory = strain_cache_dir(case, label)
+    directory = (strain_cache_dir(case, label) if cache_root is None else
+                 Path(cache_root) / f"{case.name}_psi4{label}")
     path = directory / "rpsi4_uniform.dat"
     if not path.is_file():
         raise FileNotFoundError(f"Missing {path}; run generate_gw.py with GW_STRAIN_BACKEND='python'")
@@ -344,11 +349,12 @@ def spectrum_for_case(case, time, modes, **overrides):
     return direct_psi4_spectrum(time, modes, case.mlittle, **options)
 
 
-def source_spectra(names=None, radius_index=OUTER_RADIUS_INDEX, representative=False):
+def source_spectra(names=None, radius_index=OUTER_RADIUS_INDEX, representative=False, *,
+                   cache_root=None, strict=False):
     sources, directions = {}, {}
     for case in config.all_sim_configs(SIM_NAMES if names is None else names):
         try:
-            time, modes = read_rpsi4_modes(case, radius_index)
+            time, modes = read_rpsi4_modes(case, radius_index, cache_root=cache_root)
             spectrum, info = spectrum_for_case(case, time, modes)
             sources[case.name] = SourceSpectrum(case, spectrum, info)
             if representative:
@@ -358,6 +364,8 @@ def source_spectra(names=None, radius_index=OUTER_RADIUS_INDEX, representative=F
             print(f"{case.name}: radius index {radius_index}, {len(info.modes)} modes, "
                   f"{info.samples} samples over {info.duration_mbh:.1f} M_BH", flush=True)
         except (OSError, ValueError, KeyError) as exc:
+            if strict:
+                raise ValueError(f"{case.name}: {exc}") from exc
             print(f"{case.name}: skipping detectability; {exc}", flush=True)
     return sources, directions
 

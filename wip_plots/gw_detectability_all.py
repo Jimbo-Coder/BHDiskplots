@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """All detectability figures; the scientific pipeline is in gw_detectability.py.
 
-Combined: run_wip.py detectability. Individual: run_individual.py A1 --extra.
+For just the polished combined figure, run plot_gw_detectability.py in the
+repository root. This module also contains the optional diagnostic figures.
+Combined suite: run_wip.py detectability. Individual: run_individual.py A1 --extra.
 """
 from pathlib import Path
 from dataclasses import replace
@@ -399,7 +401,7 @@ def _plot_horizon(result, args, *, filename=OUTPUT_FILENAME_HORIZON, note=None):
     savefig(fig, args, filename)
 
 
-def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note=None,
+def plot_combined(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note=None,
                         example_labels=EXAMPLE_LABEL_STYLE, write_metadata=True):
     """Distance above characteristic strain, following Wessel Fig. 10's layout."""
     if example_labels not in {"inline", "caption", "key"}:
@@ -498,6 +500,10 @@ def _plot_detectability(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note
         suffixes = [".png", ".pdf"] + (["_caption.tex", "_examples.json"] if write_metadata else [])
         for suffix in suffixes:
             shutil.copyfile(path.with_name(path.stem + suffix), family / (variant + suffix))
+
+
+# Keep existing callers working; the short standalone driver uses plot_combined.
+_plot_detectability = plot_combined
 
 
 def _plot_time_on(result, args):

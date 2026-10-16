@@ -27,6 +27,7 @@ WIP_PLOTS = {
     "strain_from_psi4_minus_ml": "gw_waveforms",
     "detectability": "gw_detectability_all",
     "temporal_trial": "gw_detectability_all",  # Explicit opt-in until the model is supported.
+    "gw_mismatch": "gw_mismatch",  # Requires kuibit; explicit opt-in diagnostic.
 }
 
 
@@ -35,7 +36,7 @@ def main(argv=None):
     parser.add_argument(
         "plots",
         nargs="*",
-        help="Optional plot names. No names runs all except the experimental temporal_trial.",
+        help="Optional plot names. No names excludes temporal_trial and gw_mismatch.",
     )
     args = parser.parse_args(argv)
     invalid = [name for name in args.plots if name not in WIP_PLOTS]
@@ -45,7 +46,7 @@ def main(argv=None):
             f"choose from {', '.join(WIP_PLOTS)}"
         )
 
-    requested = args.plots or [name for name in WIP_PLOTS if name != "temporal_trial"]
+    requested = args.plots or [name for name in WIP_PLOTS if name not in {"temporal_trial", "gw_mismatch"}]
     waveforms_done = False
     for name in requested:
         module_name = WIP_PLOTS[name]
