@@ -27,7 +27,9 @@ def main(argv=None):
     parser.add_argument(
         "plots",
         nargs="*",
-        help="Optional plot names. With no names, run the complete paper set.",
+        metavar="PLOT",
+        help=f"Choose from: {', '.join(PAPER_PLOTS)}. With no names, run the complete "
+             "paper set. Use each plot's own command for options.",
     )
     args = parser.parse_args(argv)
     invalid = [name for name in args.plots if name not in PAPER_PLOTS]

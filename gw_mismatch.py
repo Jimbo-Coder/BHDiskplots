@@ -208,7 +208,7 @@ class ManualOverlap:
 
 
 def kuibit_check(time, h1, h2, fmin, fmax, psd, start, end, ntime, nphase):
-    """Call the actual public API; no monkey-patching or internal core calls."""
+    """Compare the same prepared signals with the installed kuibit package."""
     try:
         from kuibit import gw_mismatch as kgm
         from kuibit.frequencyseries import FrequencySeries
@@ -404,29 +404,43 @@ def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--sims", nargs=2, default=SIM_NAMES, metavar=("FIRST", "SECOND"))
+    parser.add_argument("--sims", nargs=2, default=SIM_NAMES, metavar=("FIRST", "SECOND"),
+                        help="Two simulations in comparison order (default: %(default)s)")
     parser.add_argument("--radius-index", type=int, choices=range(9), default=RADIUS_INDEX,
-                        help="Zero-based parfile index; A-case raw file label = index + 1")
-    parser.add_argument("--cache-dir", type=Path, default=config.GW_WORK_ROOT)
-    parser.add_argument("--outdir", type=Path, default=config.PLOTS_DIR)
+                        help="Zero-based parfile index; A-case file label = index + 1 (default: %(default)s)")
+    parser.add_argument("--cache-dir", type=Path, default=config.GW_WORK_ROOT,
+                        help="Root containing <case>_psi4<label> caches (default: %(default)s)")
+    parser.add_argument("--outdir", type=Path, default=config.PLOTS_DIR,
+                        help="Root for wip/gw_mismatch/<weighting>/<pair> outputs (default: %(default)s)")
     parser.add_argument("--tag", help="Optional output subfolder for a parameter variant")
-    parser.add_argument("--show", action="store_true")
-    parser.add_argument("--no-save", action="store_true")
+    parser.add_argument("--show", action="store_true", help="Display the comparison figure")
+    parser.add_argument("--no-save", action="store_true", help="Calculate without saving files")
     parser.add_argument("--no-plot", action="store_true", help="Save numbers without requiring TeX")
     selection = parser.add_argument_group("interval and frequency band (simulation code units)")
-    selection.add_argument("--start", type=float, default=START_TIME)
-    selection.add_argument("--end", type=float, default=END_TIME)
-    selection.add_argument("--taper", type=float, default=TAPER_ALPHA)
-    selection.add_argument("--fmin", type=float, default=MIN_FREQUENCY)
-    selection.add_argument("--fmax", type=float, default=MAX_FREQUENCY)
-    selection.add_argument("--shift-limit", type=float, default=SHIFT_LIMIT)
+    selection.add_argument("--start", type=float, default=START_TIME,
+                           help="First retained retarded time, in code units (default: %(default)s)")
+    selection.add_argument("--end", type=float, default=END_TIME,
+                           help="Last retained code time; default: earlier waveform endpoint")
+    selection.add_argument("--taper", type=float, default=TAPER_ALPHA,
+                           help="Tukey taper fraction (default: %(default)s)")
+    selection.add_argument("--fmin", type=float, default=MIN_FREQUENCY,
+                           help="Minimum frequency in 1/code time; default: 3 / retained duration")
+    selection.add_argument("--fmax", type=float, default=MAX_FREQUENCY,
+                           help="Maximum frequency in 1/code time; default: 95%% of Nyquist")
+    selection.add_argument("--shift-limit", type=float, default=SHIFT_LIMIT,
+                           help="Allowed time shift in either direction; default: half the retained duration")
     detector = parser.add_argument_group("optional detector weighting (requires a physical mass)")
-    detector.add_argument("--detector", choices=("white", "ligo", "et", "ce", "decigo", "lisa"), default=DETECTOR)
-    detector.add_argument("--mass", type=float, default=SOURCE_BH_MASS_MSUN)
-    detector.add_argument("--redshift", type=float, default=REDSHIFT)
+    detector.add_argument("--detector", choices=("white", "ligo", "et", "ce", "decigo", "lisa"), default=DETECTOR,
+                          help="Noise weighting; white uses code units, others require --mass (default: %(default)s)")
+    detector.add_argument("--mass", type=float, default=SOURCE_BH_MASS_MSUN,
+                          help="Initial source BH mass in solar masses, for detector weighting")
+    detector.add_argument("--redshift", type=float, default=REDSHIFT,
+                          help="Redshift for detector weighting (default: %(default)s)")
     search = parser.add_argument_group("kuibit search resolution")
-    search.add_argument("--num-times", type=int, default=TIME_SEARCH_POINTS)
-    search.add_argument("--num-phases", type=int, default=PHASE_SEARCH_POINTS)
+    search.add_argument("--num-times", type=int, default=TIME_SEARCH_POINTS,
+                        help="Trial time shifts in each search (default: %(default)s)")
+    search.add_argument("--num-phases", type=int, default=PHASE_SEARCH_POINTS,
+                        help="Broad-search phase samples; refinement doubles this (default: %(default)s)")
     args = parser.parse_args(argv)
     args.sims = [name.upper() for name in args.sims]
 

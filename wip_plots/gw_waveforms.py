@@ -556,10 +556,23 @@ def save_observer_groups(args, radius):
 # 4. COMMANDS: read once per radius, prepare, draw, and save.
 def main(argv=None):
     command = parser(__doc__)
+    command.epilog = """Views:
+  psi4                       extracted curvature modes: real part and magnitude
+  strain                     integrated mode strain: plus and cross
+  psi4_minus_ml              subtract the massless reference before plotting Psi4
+  strain_minus_ml            subtract separately integrated strains
+  strain_from_psi4_minus_ml   plot strain integrated from the Psi4 difference
+  strain_panel               plus/cross histories in one case grid
+  strain_observer            physical face-on strain at a chosen mass and distance
+  gw_radiated                 radiated energy, angular momentum and phase frequency
+
+Edit view settings at the top of this file; see README.md for inputs and outputs.
+"""
     command.add_argument("--kinds", nargs="+", choices=PLOTS, default=PLOTS,
                          metavar="NAME", help="Choose from %(choices)s; default: all waveform views")
     command.add_argument("--radius-index", type=int, choices=range(9), default=None,
-                         help="One parfile extraction index; default: configured comparison radii")
+                         help="One zero-based parfile index; default: 4/8 for modal/panel views, "
+                              "8 for observer/radiated views")
     args = command.parse_args(argv)
     setup(args)
     kinds = args.kinds

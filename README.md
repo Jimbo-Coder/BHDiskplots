@@ -1,8 +1,16 @@
 # BHDiskplots
 
 Plotting and GW post-processing for the BHDisk simulations. Run commands from
-this repository's root in the usual Anvil plotting environment (`condactivate`).
-Locally, run `uv sync` once and prefix Python commands with `uv run`.
+this repository's root, using the existing Anvil plotting environment or a
+local environment created with `uv sync`. For the latter, prefix Python
+commands below with `uv run`.
+
+All figure commands use TeX with Palatino fonts; Python dependencies alone
+do not install those. The compactness plot uses data included in the repository.
+GW signal plots need preprocessed simulation files in `gw_work/`, called GW
+caches; these are omitted from Git. Before running a GW plot from a new clone,
+copy the inputs listed in the [combined-figure guide](notes/run_combined_gw_plot.md)
+or [mismatch guide](notes/gw_mismatch.md).
 
 ```text
 read-only simulation data
@@ -40,13 +48,14 @@ once and reuses its radius caches.
 Detectability `--plots` accepts `combined`, `strain`, `distance`, `radius`,
 `averaging`, `reference`, and `extrapolation`. Its default is measured
 `combined`. Optional fits are calculated only when requested. The WIP batch
-requests `BATCH_PLOTS`, which includes the labelled extrapolation.
+also draws radius/averaging/reference checks and the labelled extrapolation.
 
 Waveform `--kinds` accepts `psi4`, `strain`, `psi4_minus_ml`, `strain_minus_ml`,
 `strain_from_psi4_minus_ml`, `strain_panel`, `strain_observer`, and `gw_radiated`.
 With no selection it draws all views. `--radius-index` chooses one extraction;
 otherwise modal/polarization views use indices 4 and 8, and observer/radiated
 views use index 8. The individual runner adds per-case radius/mode comparisons.
+Simulation names are case insensitive; a misspelled name stops the command.
 
 Outputs are under `figures/`:
 
@@ -65,6 +74,10 @@ The combined figure is 7 inches wide. Its examples are ordered by BH mass:
 solve the largest SNR=8 reach among the plotted cases. The caption/JSON records
 BH mass, distance, redshift, SNR and the winning case/detector. Use
 `--example-labels key` or `inline` to change the presentation.
+To change detectors, update `ACTIVE_DETECTORS` and keep the detector entries in
+`EXAMPLE_TARGETS` within that selection. Axis limits and Matplotlib formatting
+are in section 4. Use `--outdir figures/my_comparison` to keep a parameter
+variant separately; rerunning a radius in the same output root replaces it.
 
 GW caches are ignored by Git. The [combined-figure guide](notes/run_combined_gw_plot.md)
 lists the two files needed per case/radius for a separate clone and explains
@@ -129,12 +142,16 @@ in `config.py` only for an intentional plot-only run. Detached runs can use
 Approved figures are registered in `run_paper.py`; exploratory families in
 `run_wip.py`. Paper filenames stay in `figures/`, with individual outputs in
 `figures/<case>/`. Generated figures/movies and local movie scripts are ignored.
+The batch runners accept plot names. For a radius, simulation selection or
+layout option, use the owning command in the run/edit table above. Each command's
+`--help` lists its choices and inputs.
 
 ## Scientific conventions and methods
 
 - `mlittle` is the initial BH mass in simulation units; `gw_madm` is total ADM
   mass, used for retarded time. Physical detectability scales with BH mass.
 - FFI histories and direct-Psi4 detectability are separate calculations.
+  FFI means fixed-frequency integration of Psi4 to strain.
   The NumPy FFI is parity-tested against `psi4_hlm_ref`; the reference Fortran
   backend remains available for that calculation.
 - Detectability uses the four l=2, m!=0 modes, a 1000 BH-mass transient cut,

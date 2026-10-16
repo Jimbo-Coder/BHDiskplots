@@ -222,7 +222,7 @@ def plot(include_ours=False, include_sequences=INCLUDE_SEQUENCES, sequence_overv
 
 
 def main(argv=None):
-    argument_parser = parser(__doc__)
+    argument_parser = parser(__doc__, include_sims=False)
     argument_parser.add_argument("--sequences", action=argparse.BooleanOptionalAction,
                                 default=INCLUDE_SEQUENCES,
                                 help="Overlay COCAL sequence curves (default: enabled)")

@@ -253,7 +253,13 @@ DISK_SIMS = [
 
 
 def all_sim_configs(names: Iterable[str] | None = None) -> list[DiskSimConfig]:
+    """Select cases by name, ignoring case; reject unknown names."""
     selected = None if names is None else {name.upper() for name in names}
+    if selected is not None:
+        unknown = selected - {cfg.name for cfg in DISK_SIMS}
+        if unknown:
+            raise ValueError("Unknown simulation(s): " + ", ".join(sorted(unknown))
+                             + ". Choose from " + ", ".join(cfg.name for cfg in DISK_SIMS))
     configs = [cfg.with_initial_data_path() for cfg in DISK_SIMS]
     if selected is None:
         return configs

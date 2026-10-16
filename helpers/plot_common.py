@@ -4,14 +4,17 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from config import PLOTS_DIR
+from config import DISK_SIMS, PLOTS_DIR
 from .style import apply_paper_style
 
 
-def parser(description):
+def parser(description, *, include_sims=True):
     p = argparse.ArgumentParser(
         description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--sims", nargs="+", default=None, help="Simulation names to include, e.g. A1 A2 B1")
+    if include_sims:
+        p.add_argument("--sims", nargs="+", type=str.upper,
+                       choices=[case.name for case in DISK_SIMS], default=None,
+                       help="Simulation names to include (case insensitive)")
     p.add_argument("--outdir", type=Path, default=PLOTS_DIR, help="Directory for saved figures")
     p.add_argument("--show", action="store_true", help="Show figure interactively after saving")
     p.add_argument("--no-save", action="store_true", help="Do not save figure")

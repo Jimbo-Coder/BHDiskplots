@@ -36,7 +36,10 @@ def main(argv=None):
     parser.add_argument(
         "plots",
         nargs="*",
-        help="Optional plot names. No names excludes temporal_trial and gw_mismatch.",
+        metavar="PLOT",
+        help=f"Choose from: {', '.join(WIP_PLOTS)}. With no names, run all except "
+             "temporal_trial and gw_mismatch. detectability includes measured "
+             "and labelled continuation plots. Use each plot's own command for options.",
     )
     args = parser.parse_args(argv)
     invalid = [name for name in args.plots if name not in WIP_PLOTS]

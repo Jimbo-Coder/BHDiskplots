@@ -33,6 +33,10 @@ exports use `wip/compactness/`; no historical-name copies are written.
 Use `run_wip.py compactness` for that family and `--cache-dir PATH` for
 either standalone GW analysis. Optional detectability diagnostics follow
 the measured workflow and main figure in section 5 of the owning file.
+Shared plot commands accept case names without regard to capitalization and
+reject unknown names. Batch help lists available plot families; per-plot
+options belong on the owning command. Compactness always shows the selected
+six evolved models and has no --sims option.
 
 ## Face-On Strain at 100 Mpc (2026-09-14)
 

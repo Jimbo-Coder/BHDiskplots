@@ -40,6 +40,7 @@ TAPER_ALPHA = 0.05
 LOW_FREQUENCY_CYCLES = 3.0
 SOURCE_AVERAGING = "mean"  # Mean amplitude; not an orientation-averaged SNR.
 ACTIVE_DETECTORS = ("ligo", "et", "ce", "decigo", "lisa")
+# Keep the detector names in EXAMPLE_TARGETS within ACTIVE_DETECTORS.
 SNR_THRESHOLD = 8.0
 # (detector, initial BH mass in solar masses, distance in Mpc).
 # None means solve the largest SNR=8 distance among the plotted cases.
@@ -88,7 +89,11 @@ DETECTOR_BOUNDS = {  # Observed Hz.
 
 @dataclass(frozen=True)
 class DimensionlessSpectrum:
-    """Fourier transform of q=r*h/M_BH with respect to tau=t/M_BH."""
+    """Positive-frequency strain amplitude after polarization/direction averaging.
+
+    frequency is in inverse tau=t/M_BH; strain_ft is the nonnegative Fourier
+    amplitude of q=r*h/M_BH. It retains no waveform phase for a mismatch test.
+    """
 
     frequency: np.ndarray
     strain_ft: np.ndarray
@@ -845,7 +850,8 @@ def example_targets(spectra, curves, cosmology):
     targets = []
     for detector, mass, distance in EXAMPLE_TARGETS:
         if detector not in active_detectors():
-            raise ValueError(f"Example detector {detector} is not in ACTIVE_DETECTORS")
+            raise ValueError(f"EXAMPLE_TARGETS uses {detector}, which is not in ACTIVE_DETECTORS; "
+                             "remove that example or include its detector")
         horizon_case = None
         if distance is None:
             candidates = []
@@ -872,7 +878,7 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
     """Run steps 1-7; return numerical results, without creating any figures."""
     print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
           f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
-          f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, no tail", flush=True)
+          f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, measured duration", flush=True)
     # Steps 1-4: modes -> windowed FFT -> angular average -> dimensionless strain.
     radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
     sources, representative, inner = {}, {}, {}
@@ -2039,19 +2045,24 @@ def validation_main(argv=None):
 # 6. COMMAND: select inputs -> calculate what is requested -> draw and save.
 def main(argv=None):
     import argparse
-    p = argparse.ArgumentParser(description="Measured GW spectra, SNR=8 reach and combined figure.")
-    p.add_argument("--sims", nargs="+", default=list(SIM_NAMES))
-    p.add_argument("--outdir", type=Path, default=config.PLOTS_DIR)
-    p.add_argument("--show", action="store_true")
-    p.add_argument("--no-save", action="store_true")
+    p = argparse.ArgumentParser(
+        description="Measured GW spectra, SNR=8 reach and combined figure.",
+        epilog="Saves figures/gw/detectability/radius_<index>.png and .pdf, plus caption "
+               "and source parameters. Copied caches: see notes/run_combined_gw_plot.md.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument("--sims", nargs="+", default=list(SIM_NAMES), help="Simulations to compare")
+    p.add_argument("--outdir", type=Path, default=config.PLOTS_DIR, help="Root for saved figures")
+    p.add_argument("--show", action="store_true", help="Display figures after drawing")
+    p.add_argument("--no-save", action="store_true", help="Calculate and draw without saving files")
     p.add_argument("--radius-index", type=int, choices=range(9), default=OUTER_RADIUS_INDEX,
                    help="Zero-based parfile extraction index (0-8); A-case file label = index + 1")
     p.add_argument("--cache-dir", type=Path, default=config.GW_WORK_ROOT,
                    help="Directory containing A1_psi4*, A2_psi4*, A3_psi4* caches")
-    p.add_argument("--example-labels", choices=("caption", "key", "inline"), default=EXAMPLE_LABEL_STYLE)
+    p.add_argument("--example-labels", choices=("caption", "key", "inline"), default=EXAMPLE_LABEL_STYLE,
+                   help="Put example masses/distances in the caption, a figure key, or beside curves")
     p.add_argument("--plots", nargs="+", choices=AVAILABLE_PLOTS,
                    default=("combined",), metavar="NAME",
-                   help="Choose from %(choices)s; default: %(default)s")
+                   help="Views to draw: %(choices)s")
     args = p.parse_args(argv)
     requested = set(args.plots)
     if "extrapolation" in requested and (args.radius_index != OUTER_RADIUS_INDEX
@@ -2059,10 +2070,10 @@ def main(argv=None):
         p.error("Continuation diagnostics require the configured outer-radius and scalar caches")
 
     # 1. Check and print the actual inputs before attempting any expensive work.
-    cases = config.all_sim_configs(args.sims)
-    unknown = set(name.upper() for name in args.sims) - {case.name for case in cases}
-    if unknown:
-        p.error("Unknown simulation(s): " + ", ".join(sorted(unknown)))
+    try:
+        cases = config.all_sim_configs(args.sims)
+    except ValueError as exc:
+        p.error(str(exc))
     inputs = []
     for case in cases:
         label = args.radius_index + case.gw_psi4_file_index_offset

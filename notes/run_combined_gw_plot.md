@@ -33,6 +33,8 @@ figures/gw/detectability/radius_6_inputs.json
 The caption and example JSON contain masses, distances, redshifts and SNRs.
 The inputs JSON records the chosen index, file labels and cache directories.
 For another output root use `--outdir PATH`. Run `--help` for all options.
+Changing masses or cases at the same radius replaces that radius's outputs.
+Use `--outdir figures/my_comparison` to keep a separate parameter variant.
 
 ## Which radius does 6 mean?
 
@@ -95,7 +97,8 @@ These are the usual changes; each has one editing location:
 | Simulations | `--sims A1 A3`, or `SIM_NAMES` in section 1 |
 | Modes, transient cut, taper, averaging | Section 1: `MODES`, `TRANSIENT_CUTOFF_MBH`, `TAPER_ALPHA`, `SOURCE_AVERAGING` |
 | Illustrative BH masses/distances | Section 1: `EXAMPLE_TARGETS`; distance `None` solves the SNR threshold |
-| Detectors and SNR threshold | Section 1: `ACTIVE_DETECTORS`, `SNR_THRESHOLD` |
+| Detectors | Section 1: `ACTIVE_DETECTORS`; also remove any `EXAMPLE_TARGETS` entries for detectors you remove |
+| SNR threshold | Section 1: `SNR_THRESHOLD` |
 | Numerical resolution and cosmology | Section 1, immediately below the physical choices |
 | Axis limits, labels, line styles | Section 4, beside `plot_combined` and its two panel functions |
 | Legend placement and panel spacing | `plot_combined` in section 4 |
@@ -149,6 +152,8 @@ A selected measured diagnostic does not run that fit or load
 unrequested radius/direction comparisons. Only `combined` and `distance` need
 the full measured mass-versus-distance scan. Illustrative strain sources still
 solve their own threshold distances, as described above.
+The batch runner accepts plot names only; use `gw_detectability.py` directly
+for options such as `--radius-index`, `--sims` and `--outdir`.
 
 For waveform histories, the five data-preparation branches are together in
 `waveform()` in `wip_plots/gw_waveforms.py`. For example:

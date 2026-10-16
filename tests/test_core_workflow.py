@@ -649,6 +649,31 @@ class RestartAndCacheTests(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "Run generate_gw.py"):
                 read_strain_cache(Path(tmp), psi4.path)
 
+    def test_unknown_case_is_not_silently_omitted(self):
+        with self.assertRaisesRegex(ValueError, "Unknown simulation.*A99"):
+            all_sim_configs(["A1", "a99"])
+
+    def test_lowercase_observer_case_reaches_the_plot(self):
+        from wip_plots import gw_waveforms as plots
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("helpers.plot_common.apply_paper_style"), \
+                mock.patch.object(plots, "save_observer_groups") as observer, \
+                mock.patch.object(plots, "GWRun") as raw:
+            plots.main(["--kinds", "strain_observer", "--sims", "a1",
+                        "--outdir", tmp])
+        observer.assert_called_once()
+        self.assertEqual(observer.call_args.args[0].sims, ["A1"])
+        raw.assert_not_called()
+
+    def test_misspelled_case_fails_before_plot_setup(self):
+        from wip_plots import gw_waveforms as plots
+
+        with mock.patch.object(plots, "setup") as setup, \
+                mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            plots.main(["--kinds", "strain", "--sims", "A1", "A99"])
+        setup.assert_not_called()
+
     def test_massless_restart_is_ordered_oldest_to_newest(self):
         massless = all_sim_configs(["ml"])[0]
         self.assertEqual(len(massless.data_roots), 3)

@@ -4,6 +4,16 @@ Last updated: 2026-10-16
 
 ## Current Work
 
+- Oct16 fresh-reader walkthrough: started from README and command help, then
+  traced the combined figure, a radius change, source/detector edits, waveform
+  selection, mismatch and compactness. Batch help now lists plot names;
+  GW help explains defaults, units and outputs. README starts with TeX/data
+  requirements and the edit guide explains paired detector/example settings
+  and separate output roots. Shared simulation selection is case insensitive
+  and rejects unknown cases; lowercase observer selections no longer disappear.
+  Compactness no longer advertises an unused --sims option. No calculations
+  or figure layouts were changed. Evidence: run_logs/gw_reader_review_20261016/.
+
 - Oct16 usability polish: measured equations, `analyze()` and the combined
   drawing now read in order, before the optional diagnostics in section 5.
   Waveform case/radius selection uses explicit steps and retains one reader
