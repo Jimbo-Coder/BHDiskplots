@@ -103,20 +103,23 @@ These are the usual changes; each has one editing location:
 | Axis limits, labels, line styles | Section 4, beside `plot_combined` and its two panel functions |
 | Legend placement and panel spacing | `plot_combined` in section 4 |
 
-Read `gw_detectability.py` in order:
+The file is arranged around the main calculation:
 
 1. **Settings and inputs:** a compact physical-choice block, the cache column
    reader, and the detector-table reader. Radius index 6 maps to file label 7.
-2. **Calculation:** time cuts, Tukey window, FFT, harmonic reconstruction,
-   plus/cross amplitude, solid-angle mean, conversion from Psi4 to strain,
-   observer mass/redshift scaling, PSD weighting and SNR/distance roots.
-   These are actual equations and array operations in this file.
-3. **Complete workflow:** `analyze` shows the case loop, reads each selected
-   cache, calls the spectral calculation with explicit choices, constructs noise,
-   solves the example scales, and computes distance-reach curves.
+2. **Measured workflow:** `analyze` is immediately after the readers. Its five
+   steps read each case, form a spectrum, construct detector noise, scale the
+   example sources, and solve the distance reach. The functions that carry out
+   the spectral, observer-frame and detector calculations follow it in the
+   same section. Names such as `frequency_mbh`, `frequency_hz` and
+   `time_scale_seconds` state which units each array uses.
+3. **Numerical routines:** interpolation, angular quadrature, cosmology,
+   spectral-power binning and root finding. These implement the equations
+   used in section 2; they do not select cases or format figures.
 4. **Plot and format:** `plot_combined` and its two shared panel functions
    contain the Matplotlib code. Limits, line styles and label placement sit
-   beside the drawing code. The renderer is not imported from a WIP module.
+   beside the drawing code. `distance_ax` is the upper panel and `strain_ax`
+   is the lower panel, so a layout edit can address the intended panel directly.
 
 The command-line parser is at the bottom. The few presentation options remain
 available, including `--example-labels key`, but they are outside the path

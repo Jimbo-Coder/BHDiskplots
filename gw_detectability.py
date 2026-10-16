@@ -4,11 +4,11 @@
 Run: python gw_detectability.py --radius-index 6
 Checks: python gw_detectability.py --plots radius averaging --sims A1 A3
 
-Read sections 1-4 in order: settings and readers -> measured spectral and
-detector calculation -> analyze() -> plot_combined() and its two panels.
-Edit physical choices in section 1 and appearance in section 4. Optional
-validation and continuation diagnostics follow in section 5; the command-line
-options are at the bottom in section 6.
+Start with the settings and cache reader in section 1, then analyze() at the
+start of section 2. Its signal and detector equations follow in that section.
+Section 3 implements the sampling, angular quadrature and numerical scans.
+Edit the two panels and their layout in section 4. Optional diagnostics are
+in section 5; command-line options are at the bottom in section 6.
 
 The default uses measured rPsi4, with no FFI or synthetic continuation.
 Units: tau=t/M_BH, q=r*h/M_BH, p=M_BH*r*Psi4=d^2q/dtau^2.
@@ -38,7 +38,8 @@ MODES = ((2, 2), (2, 1), (2, -2), (2, -1))  # (2,0) is deliberately excluded.
 TRANSIENT_CUTOFF_MBH = 1000.0
 TAPER_ALPHA = 0.05
 LOW_FREQUENCY_CYCLES = 3.0
-SOURCE_AVERAGING = "mean"  # Mean amplitude; not an orientation-averaged SNR.
+SOURCE_AVERAGING = "mean"  # "mean" or "rms" amplitude over source directions.
+# The resulting SNR uses that amplitude statistic; it is not a population-mean SNR.
 ACTIVE_DETECTORS = ("ligo", "et", "ce", "decigo", "lisa")
 # Keep the detector names in EXAMPLE_TARGETS within ACTIVE_DETECTORS.
 SNR_THRESHOLD = 8.0
@@ -102,7 +103,7 @@ class DimensionlessSpectrum:
 
 @dataclass(frozen=True)
 class Psi4SpectrumInfo:
-    """Numerical choices and resolved sampling for a direct-Psi4 spectrum."""
+    """Sampling metadata: times in M_BH and frequencies in inverse M_BH."""
 
     modes: tuple[tuple[int, int], ...]
     samples: int
@@ -126,8 +127,8 @@ class SourceSpectrum:
 
 @dataclass
 class ObservedTarget:
-    mass: float
-    distance: float
+    mass: float  # Initial source BH mass in solar masses.
+    distance: float  # Luminosity distance in Mpc.
     redshift: float
     strain: dict  # case -> (observed frequency in Hz, characteristic strain)
     snr: dict  # case -> detector -> SNR of the chosen source-amplitude statistic
@@ -216,8 +217,366 @@ def load_detector_curves():
 
 
 # ----------------------------------------------------------------------
-# 2. CALCULATION: time cuts -> window -> FFT -> polarization mean -> strain
+# 2. MEASURED WORKFLOW: read each case -> spectrum -> source scales -> reach
 # ----------------------------------------------------------------------
+# Start with analyze(). The signal equations it calls follow immediately.
+# Numerical quadrature, sampling and root finding are collected in section 3.
+
+
+def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True,
+            radius_index=None, cache_root=None, include_reference=False):
+    """Read the selected cases and return everything needed to draw the figure.
+
+    The main result contains dimensionless source spectra, detector noise,
+    physically scaled examples and SNR-threshold distances. Radius and
+    direction comparisons are computed only when requested.
+    """
+    print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
+          f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
+          f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, measured duration", flush=True)
+    # 1. Read the selected extraction for each simulation.
+    radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
+    sources, representative, inner = {}, {}, {}
+    for case in config.all_sim_configs(SIM_NAMES if names is None else names):
+        try:
+            # Reader: the cached columns already have a common retarded-time grid.
+            time, modes = read_rpsi4_modes(case, radius_index, cache_root=cache_root)
+            # 2. Convert curvature modes to a dimensionless strain spectrum.
+            # direct_psi4_spectrum() below shows the cut, window, FFT and average.
+            # mlittle is the initial BH mass in simulation code units.
+            spectrum, info = direct_psi4_spectrum(
+                time, modes, case.mlittle, transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH,
+                taper_alpha=TAPER_ALPHA, zero_pad_factor=ZERO_PAD_FACTOR,
+                low_frequency_cycles=LOW_FREQUENCY_CYCLES, theta_nodes=THETA_NODES,
+                phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING)
+            sources[case.name] = SourceSpectrum(case, spectrum, info)
+            print(f"{case.name}: radius index {radius_index}, {info.samples} samples "
+                  f"over {info.duration_mbh:.1f} M_BH", flush=True)
+            if compare_direction:
+                representative[case.name] = spectrum_for_case(
+                    case, time, modes, representative_direction=(np.pi/2.34, 0.))[0]
+            if compare_radius:
+                inner_time, inner_modes = read_rpsi4_modes(case, FIRST_RADIUS_INDEX, cache_root=cache_root)
+                inner_spectrum, inner_info = spectrum_for_case(case, inner_time, inner_modes)
+                inner[case.name] = SourceSpectrum(case, inner_spectrum, inner_info)
+        except (OSError, ValueError, KeyError) as exc:
+            raise ValueError(f"{case.name}: {exc}") from exc
+    if not sources:
+        raise ValueError("No valid direct-Psi4 spectra were produced")
+    spectra = {name: source.spectrum for name, source in sources.items()}
+
+    # 3. Characteristic noise h_n = sqrt(f) * effective ASD.
+    # The SNR calculation uses this same detector response.
+    curves = load_detector_curves()
+    noise = {}
+    for detector in active_detectors():
+        minimum_hz, maximum_hz = DETECTOR_BOUNDS[detector]
+        frequency_hz = np.geomspace(minimum_hz, maximum_hz, 500)
+        effective_asd = effective_detector_asd(detector, frequency_hz, curves)
+        noise[detector] = frequency_hz, np.sqrt(frequency_hz) * effective_asd
+
+    # 4. Scale the example sources to physical mass, distance and redshift.
+    cosmology = FlatLambdaCDM(z_max=max(12.0, HORIZON_REDSHIFT_MAX + 0.5))
+    targets = example_targets(spectra, curves, cosmology)
+
+    shibata = None
+    if include_reference:
+        redshift = cosmology.redshift_at_luminosity_distance(SHIBATA_DISTANCE_MPC)
+        shibata = observed_target(spectra, SHIBATA_BH_MASS_MSUN, SHIBATA_DISTANCE_MPC,
+                                  redshift, curves)
+
+    # 5. Scan source mass; solve integral (h_c/h_n)^2 d ln f = SNR_THRESHOLD^2.
+    horizons = horizon_curves(spectra, curves, cosmology) if compute_horizons else None
+    return DetectabilityResult(
+        sources=sources, inner=inner, representative=representative,
+        noise=noise, targets=targets, horizons=horizons, shibata=shibata)
+
+
+def direct_psi4_spectrum(
+    time,
+    rpsi4_modes: Mapping[tuple[int, int], np.ndarray],
+    bh_mass: float,
+    *,
+    transient_cutoff_mbh: float = TRANSIENT_CUTOFF_MBH,
+    taper_alpha: float = TAPER_ALPHA,
+    zero_pad_factor: float = ZERO_PAD_FACTOR,
+    low_frequency_cycles: float = LOW_FREQUENCY_CYCLES,
+    theta_nodes: int = THETA_NODES,
+    phi_nodes: int = PHI_NODES,
+    averaging: str = SOURCE_AVERAGING,
+    representative_direction: tuple[float, float] | None = None,
+    trim_prearrival: bool = True,
+    continuation=None,
+):
+    """Build a finite-duration strain spectrum directly from ``r*Psi4``.
+
+    The dimensionless variables are ``tau=t/M_BH``, ``q=r*h/M_BH`` and
+    ``p=M_BH*r*Psi4=d^2q/dtau^2``.  The Fourier-domain conversion is therefore
+    ``q_tilde=-p_tilde/(2*pi*nu)^2``.  Source directions are combined with
+    spin-weight -2 harmonics before plus/cross polarization averaging.
+    """
+    bh_mass = float(bh_mass)
+    if not np.isfinite(bh_mass) or bh_mass <= 0.0:
+        raise ValueError("bh_mass must be finite and positive")
+
+    # 1. Retain measured post-transient samples on one uniform time grid.
+    time, modes = retained_psi4_modes(time, rpsi4_modes, bh_mass,
+                                      transient_cutoff_mbh, trim_prearrival)
+
+    # 2. Use tau=t/M_BH and p=M_BH*r*Psi4; taper every mode identically.
+    tau = (time - time[0]) / bh_mass
+    dtau = float(np.median(np.diff(tau)))
+    duration = float(tau[-1] - tau[0])
+    window = tukey_window(tau.size, taper_alpha)
+    ordered_modes = tuple(sorted(modes))
+    windowed_psi4 = np.stack([bh_mass * modes[mode] * window for mode in ordered_modes])
+
+    if continuation is not None and continuation.extended_strain is not None:
+        if continuation.issues and not continuation.conditional:
+            raise ValueError("A rejected temporal trial cannot extend Psi4")
+        if (2, 2) not in modes:
+            raise ValueError("The continuation requires measured mode (2,2)")
+        extended_time, extended_psi4 = continued_psi4_mode(
+            time/bh_mass, bh_mass*modes[2, 2], continuation)
+        # All other modes keep exactly their measured Tukey termination. Only
+        # (2,2) replaces that termination with the analytic model and final taper.
+        windowed_psi4 = np.pad(windowed_psi4, ((0, 0), (0, len(extended_time)-len(time))))
+        half = len(time)//2
+        extended_psi4[:half] *= window[:half]  # unchanged onset taper width
+        windowed_psi4[ordered_modes.index((2, 2))] = extended_psi4
+
+    zero_pad_factor = max(float(zero_pad_factor), 1.0)
+    count = windowed_psi4.shape[1]
+    nfft = max(count, int(np.ceil(zero_pad_factor * count)))
+    padding = nfft - count
+    pad_left = padding // 2
+    pad_right = padding - pad_left
+    windowed_psi4 = np.pad(windowed_psi4, ((0, 0), (pad_left, pad_right)))
+    # 3. Continuous-transform normalization: p_tilde = FFT(p) * d_tau.
+    # A common window lets us FFT modes once, then reconstruct each direction.
+    # This equals reconstructing in time first, without thousands of FFTs.
+    psi4_fft = np.fft.fft(windowed_psi4, axis=1) * dtau
+    all_frequencies_mbh = np.fft.fftfreq(nfft, d=dtau)
+    positive_indices = np.flatnonzero(all_frequencies_mbh > 0.0)
+    frequency_mbh = all_frequencies_mbh[positive_indices]
+    if duration <= 0.0:
+        raise ValueError("Psi4 duration must be positive")
+    frequency_floor = max(float(low_frequency_cycles), 0.0) / duration
+    positive_indices = positive_indices[frequency_mbh >= frequency_floor]
+    frequency_mbh = all_frequencies_mbh[positive_indices]
+    if frequency_mbh.size < 4:
+        raise ValueError("Too few positive frequencies above the finite-duration floor")
+
+    negative_indices = (-positive_indices) % nfft
+    omega_squared = np.square(2.0 * np.pi * frequency_mbh)
+    positive_mode_ffts = psi4_fft[:, positive_indices]
+    negative_mode_ffts = psi4_fft[:, negative_indices]
+
+    # 4. Choose the source directions, then reconstruct both polarizations.
+    # Angular weights integrate dOmega/(4*pi), so their sum is one.
+    if representative_direction is None:
+        theta, phi, weights = _source_directions(theta_nodes, phi_nodes)
+        angular_statistic = averaging
+        averaging_label = f"source-direction {averaging}"
+        resolved_theta_nodes = max(2, int(theta_nodes))
+        resolved_phi_nodes = max(4, int(phi_nodes))
+    else:
+        theta = np.array([float(representative_direction[0])])
+        phi = np.array([float(representative_direction[1])])
+        weights = np.ones(1)
+        angular_statistic = "mean"
+        averaging_label = "representative direction"
+        resolved_theta_nodes = 1
+        resolved_phi_nodes = 1
+
+    harmonics = _harmonic_matrix(ordered_modes, theta, phi)
+    strain_amplitude = _polarization_amplitude_from_mode_ffts(
+        positive_mode_ffts, negative_mode_ffts, harmonics, weights, angular_statistic)
+
+    # 5. |q_tilde| = |p_tilde| / (2*pi*nu)^2. This common division commutes
+    # with the amplitude average above; it is not fixed-frequency integration.
+    # The Fourier second-derivative minus sign disappears in the magnitude.
+    strain_amplitude /= omega_squared
+    spectrum = DimensionlessSpectrum(
+        frequency=np.asarray(frequency_mbh, dtype=float),
+        strain_ft=np.asarray(strain_amplitude, dtype=float),
+        averaging=averaging_label,
+    )
+    info = Psi4SpectrumInfo(
+        modes=ordered_modes,
+        samples=int(tau.size),
+        duration_mbh=duration,
+        dt_mbh=dtau,
+        frequency_min=float(frequency_mbh[0]),
+        frequency_max=float(frequency_mbh[-1]),
+        theta_nodes=resolved_theta_nodes,
+        phi_nodes=resolved_phi_nodes,
+        taper_alpha=float(taper_alpha),
+        zero_pad_factor=zero_pad_factor,
+        low_frequency_cycles=float(low_frequency_cycles),
+    )
+    return spectrum, info
+
+
+def observer_spectrum(
+    spectrum: DimensionlessSpectrum,
+    source_bh_mass_msun: float,
+    luminosity_distance_mpc: float,
+    redshift: float = 0.0,
+):
+    """Apply physical BH mass, luminosity distance and redshift to a spectrum.
+
+    f_obs = nu / time_scale_seconds. The Fourier amplitude receives both
+    the strain scale G*M_z/(c^2*D_L) and the time scale G*M_z/c^3, where
+    M_z = (1+z)*M_BH. M_BH is the initial BH mass, not the total ADM mass.
+    """
+    source_mass_msun = float(source_bh_mass_msun)
+    distance_mpc = float(luminosity_distance_mpc)
+    z = float(redshift)
+    if source_mass_msun <= 0.0 or distance_mpc <= 0.0 or z < 0.0:
+        raise ValueError("source mass and distance must be positive and redshift nonnegative")
+
+    redshifted_mass_msun = source_mass_msun * (1.0 + z)
+    time_scale_seconds = redshifted_mass_msun * SECONDS_PER_M_SUN
+    amplitude_scale = redshifted_mass_msun * METERS_PER_M_SUN / (distance_mpc * METERS_PER_MPC)
+    frequency_hz = np.asarray(spectrum.frequency, dtype=float) / time_scale_seconds
+    strain_per_hz = np.asarray(spectrum.strain_ft, dtype=complex) * amplitude_scale * time_scale_seconds
+    return frequency_hz, strain_per_hz
+
+
+def characteristic_strain(frequency, strain_ft):
+    """Moore et al. Eq. (17), using a continuous-transform normalization."""
+    return 2.0 * np.asarray(frequency, dtype=float) * np.abs(strain_ft)
+
+
+def cumulative_snr(frequency, strain_ft, noise_psd, fmin, fmax):
+    frequency = np.asarray(frequency, dtype=float)
+    strain_ft = np.asarray(strain_ft, dtype=complex)
+    noise_psd = np.asarray(noise_psd, dtype=float)
+    selected = (
+        np.isfinite(frequency)
+        & np.isfinite(strain_ft.real)
+        & np.isfinite(strain_ft.imag)
+        & np.isfinite(noise_psd)
+        & (noise_psd > 0.0)
+        & (frequency >= float(fmin))
+        & (frequency <= float(fmax))
+    )
+    out = np.full(frequency.shape, np.nan, dtype=float)
+    if np.count_nonzero(selected) < 2:
+        return out
+
+    f = frequency[selected]
+    integrand = 4.0 * np.square(np.abs(strain_ft[selected])) / noise_psd[selected]
+    area = 0.5 * (integrand[1:] + integrand[:-1]) * np.diff(f)
+    snr2 = np.empty(f.size, dtype=float)
+    snr2[0] = 0.0
+    snr2[1:] = np.cumsum(area)
+    out[selected] = np.sqrt(np.maximum(snr2, 0.0))
+    return out
+
+
+def observed_target(spectra, mass, distance, redshift, curves, detector=None):
+    """Apply one shared physical source scale to every case."""
+    strain, snr = {}, {}
+    for name, spectrum in spectra.items():
+        frequency, strain_ft = observer_spectrum(spectrum, mass, distance, redshift)
+        strain[name] = frequency, characteristic_strain(frequency, strain_ft)
+        power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
+        snr[name] = {
+            detector_name: _snr_from_binned_power(power, detector_name, mass * (1 + redshift), distance, curves)
+            for detector_name in active_detectors()
+        }
+    return ObservedTarget(mass=mass, distance=distance, redshift=redshift,
+                          strain=strain, snr=snr, detector=detector)
+
+
+def example_targets(spectra, curves, cosmology):
+    """Use refined best-case detector reaches, or explicitly fixed distances."""
+    targets = []
+    for detector, mass, distance in EXAMPLE_TARGETS:
+        if detector not in active_detectors():
+            raise ValueError(f"EXAMPLE_TARGETS uses {detector}, which is not in ACTIVE_DETECTORS; "
+                             "remove that example or include its detector")
+        horizon_case = None
+        if distance is None:
+            candidates = []
+            for name, spectrum in spectra.items():
+                power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
+                z = _threshold_redshift(power, detector, mass, curves, cosmology, refine=True)
+                if np.isfinite(z):
+                    candidates.append((float(cosmology.luminosity_distance_mpc(z)), name, z))
+            if not candidates:
+                raise ValueError(f"No {detector} threshold example at {mass:g} solar masses")
+            distance, horizon_case, redshift = max(candidates)
+        else:
+            redshift = cosmology.redshift_at_luminosity_distance(distance)
+        target = observed_target(spectra, mass, distance, redshift, curves, detector)
+        if horizon_case is not None:
+            target.distance_policy = "best-case threshold"
+            target.horizon_case = horizon_case
+        targets.append(target)
+    return targets
+
+
+def horizon_curves(spectra, curves, cosmology):
+    masses = np.logspace(
+        np.log10(HORIZON_MASS_RANGE_MSUN[0]),
+        np.log10(HORIZON_MASS_RANGE_MSUN[1]),
+        int(HORIZON_MASS_SAMPLES),
+    )
+    # Include exact example masses so their crosses lie on the drawn curves.
+    masses = np.unique(np.r_[masses, [mass for _, mass, _ in EXAMPLE_TARGETS
+                                     if HORIZON_MASS_RANGE_MSUN[0] <= mass <= HORIZON_MASS_RANGE_MSUN[1]]])
+    threshold_examples = {(detector, mass) for detector, mass, distance in EXAMPLE_TARGETS
+                          if distance is None}
+    result = {detector: {} for detector in active_detectors()}
+    for sim_name, spectrum in spectra.items():
+        binned = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
+        for detector in active_detectors():
+            horizon = np.full_like(masses, np.nan)
+            for mass_index, source_mass in enumerate(masses):
+                z_horizon = _threshold_redshift(
+                    binned, detector, source_mass, curves, cosmology,
+                    refine=(detector, source_mass) in threshold_examples)
+                if np.isfinite(z_horizon):
+                    horizon[mass_index] = cosmology.luminosity_distance_mpc(z_horizon)
+            result[detector][sim_name] = horizon
+    return masses, result
+
+
+def effective_detector_asd(detector: str, frequency, curves) -> np.ndarray:
+    """Effective ASD for which 4*int h_res^2/S_eff df is the sky-averaged SNR^2.
+
+    The detector sees F+ h+ + Fx hx. Averaging over sky position and
+    polarization angle gives <F+^2> = <Fx^2> = 1/5 for a right-angle
+    interferometer and <F+ Fx> = 0, so <|F+h+ + Fx hx|^2> = (2/5) h_res^2 with
+    Eq. (8) h_res^2 = (|h+|^2+|hx|^2)/2. Hence S_eff = (5/2) S_instrument.
+    The same SNR follows by applying sqrt(2/5) to h_res and using the raw PSD.
+    Tests pin this averaged response directly; they do not reproduce Wessel's
+    published numerical SNRs or establish its input-curve convention.
+    """
+    if detector == "decigo":
+        return np.sqrt(2.5) * _decigo_instrument_asd(frequency)
+    asd = _log_interpolate_curve(curves[detector], frequency)
+    if detector in {"ligo", "ce"}:
+        return np.sqrt(2.5) * asd
+    if detector == "et":
+        # CoBA's input is a single 90-degree equivalent. Three independent
+        # 60-degree Michelsons give sqrt(3)*sin(60)=3/2 network amplitude gain.
+        return np.sqrt(2.5) / 1.5 * asd
+    if detector == "lisa":
+        # SciRDv1 S_h is one Michelson channel averaged per polarization
+        # (20/3; exactly twice Robson+2019 at low f). Two independent channels
+        # (A, E) halve it, and the h_res convention halves it again.
+        return 0.5 * asd
+    raise ValueError(f"Unknown detector {detector!r}")
+
+
+# ----------------------------------------------------------------------
+# 3. NUMERICAL ROUTINES: sampling, angular quadrature, cosmology and SNR scan
+# ----------------------------------------------------------------------
+
 def tukey_window(size: int, alpha: float = TAPER_ALPHA) -> np.ndarray:
     """Return a symmetric Tukey window without requiring SciPy."""
     size = int(size)
@@ -317,6 +676,14 @@ def _polarization_amplitude_from_mode_ffts(
     averaging,
     chunk_size=2048,
 ):
+    """Reconstruct plus/cross and combine their amplitudes in each direction.
+
+    For H = h_plus - i*h_cross, the two Fourier sides give
+    h_plus(f) = [H(f) + H*(-f)]/2. The sign of cross drops out of its magnitude.
+    Our polarization amplitude is sqrt((|h_plus|^2 + |h_cross|^2)/2).
+    The source-direction mean is sum(weights * amplitude); RMS instead takes
+    sqrt(sum(weights * amplitude^2)). Detector response is applied separately.
+    """
     n_frequency = positive_modes.shape[1]
     result = np.empty(n_frequency, dtype=float)
     for start in range(0, n_frequency, int(chunk_size)):
@@ -352,172 +719,6 @@ def retained_psi4_modes(time, modes, bh_mass, transient_cutoff_mbh=TRANSIENT_CUT
     if time.size < 8:
         raise ValueError("Too few Psi4 samples remain after the transient cut")
     return _uniform_common_mode_series(time, modes)
-
-
-def direct_psi4_spectrum(
-    time,
-    rpsi4_modes: Mapping[tuple[int, int], np.ndarray],
-    bh_mass: float,
-    *,
-    transient_cutoff_mbh: float = TRANSIENT_CUTOFF_MBH,
-    taper_alpha: float = TAPER_ALPHA,
-    zero_pad_factor: float = ZERO_PAD_FACTOR,
-    low_frequency_cycles: float = LOW_FREQUENCY_CYCLES,
-    theta_nodes: int = THETA_NODES,
-    phi_nodes: int = PHI_NODES,
-    averaging: str = SOURCE_AVERAGING,
-    representative_direction: tuple[float, float] | None = None,
-    trim_prearrival: bool = True,
-    continuation=None,
-):
-    """Build a finite-duration strain spectrum directly from ``r*Psi4``.
-
-    The dimensionless variables are ``tau=t/M_BH``, ``q=r*h/M_BH`` and
-    ``p=M_BH*r*Psi4=d^2q/dtau^2``.  The Fourier-domain conversion is therefore
-    ``q_tilde=-p_tilde/(2*pi*nu)^2``.  Source directions are combined with
-    spin-weight -2 harmonics before plus/cross polarization averaging.
-    """
-    bh_mass = float(bh_mass)
-    if not np.isfinite(bh_mass) or bh_mass <= 0.0:
-        raise ValueError("bh_mass must be finite and positive")
-
-    # 1. Retain measured post-transient samples on one uniform time grid.
-    time, modes = retained_psi4_modes(time, rpsi4_modes, bh_mass,
-                                      transient_cutoff_mbh, trim_prearrival)
-
-    # 2. Use tau=t/M_BH and p=M_BH*r*Psi4; taper every mode identically.
-    tau = (time - time[0]) / bh_mass
-    dtau = float(np.median(np.diff(tau)))
-    duration = float(tau[-1] - tau[0])
-    window = tukey_window(tau.size, taper_alpha)
-    ordered_modes = tuple(sorted(modes))
-    mode_data = np.stack([bh_mass * modes[mode] * window for mode in ordered_modes])
-
-    if continuation is not None and continuation.extended_strain is not None:
-        if continuation.issues and not continuation.conditional:
-            raise ValueError("A rejected temporal trial cannot extend Psi4")
-        if (2, 2) not in modes:
-            raise ValueError("The continuation requires measured mode (2,2)")
-        extended_time, extended_psi4 = continued_psi4_mode(
-            time/bh_mass, bh_mass*modes[2, 2], continuation)
-        # All other modes keep exactly their measured Tukey termination. Only
-        # (2,2) replaces that termination with the analytic model and final taper.
-        mode_data = np.pad(mode_data, ((0, 0), (0, len(extended_time)-len(time))))
-        half = len(time)//2
-        extended_psi4[:half] *= window[:half]  # unchanged onset taper width
-        mode_data[ordered_modes.index((2, 2))] = extended_psi4
-
-    zero_pad_factor = max(float(zero_pad_factor), 1.0)
-    count = mode_data.shape[1]
-    nfft = max(count, int(np.ceil(zero_pad_factor * count)))
-    padding = nfft - count
-    pad_left = padding // 2
-    pad_right = padding - pad_left
-    mode_data = np.pad(mode_data, ((0, 0), (pad_left, pad_right)))
-    # 3. Continuous-transform normalization: p_tilde = FFT(p) * d_tau.
-    # A common window lets us FFT modes once, then reconstruct each direction.
-    # This equals reconstructing in time first, without thousands of FFTs.
-    mode_fft = np.fft.fft(mode_data, axis=1) * dtau
-    frequency_full = np.fft.fftfreq(nfft, d=dtau)
-    positive_indices = np.flatnonzero(frequency_full > 0.0)
-    frequency = frequency_full[positive_indices]
-    if duration <= 0.0:
-        raise ValueError("Psi4 duration must be positive")
-    frequency_floor = max(float(low_frequency_cycles), 0.0) / duration
-    positive_indices = positive_indices[frequency >= frequency_floor]
-    frequency = frequency_full[positive_indices]
-    if frequency.size < 4:
-        raise ValueError("Too few positive frequencies above the finite-duration floor")
-
-    negative_indices = (-positive_indices) % nfft
-    omega_squared = np.square(2.0 * np.pi * frequency)
-    positive_modes = mode_fft[:, positive_indices]
-    negative_modes = mode_fft[:, negative_indices]
-
-    # 4. Reconstruct plus/cross in each source direction, then average amplitude.
-    if representative_direction is None:
-        theta, phi, weights = _source_directions(theta_nodes, phi_nodes)
-        harmonics = _harmonic_matrix(ordered_modes, theta, phi)
-        strain_ft = _polarization_amplitude_from_mode_ffts(
-            positive_modes,
-            negative_modes,
-            harmonics,
-            weights,
-            averaging,
-        )
-        averaging_label = f"source-direction {averaging}"
-        resolved_theta_nodes = max(2, int(theta_nodes))
-        resolved_phi_nodes = max(4, int(phi_nodes))
-    else:
-        theta = np.array([float(representative_direction[0])])
-        phi = np.array([float(representative_direction[1])])
-        harmonics = _harmonic_matrix(ordered_modes, theta, phi)
-        strain_ft = _polarization_amplitude_from_mode_ffts(
-            positive_modes,
-            negative_modes,
-            harmonics,
-            np.ones(1),
-            "mean",
-        )
-        averaging_label = "representative direction"
-        resolved_theta_nodes = 1
-        resolved_phi_nodes = 1
-
-    # 5. |q_tilde| = |p_tilde| / (2*pi*nu)^2. This common division commutes
-    # with the amplitude average above; it is not fixed-frequency integration.
-    # The Fourier second-derivative minus sign disappears in the magnitude.
-    strain_ft /= omega_squared
-    spectrum = DimensionlessSpectrum(
-        frequency=np.asarray(frequency, dtype=float),
-        strain_ft=np.asarray(strain_ft, dtype=float),
-        averaging=averaging_label,
-    )
-    info = Psi4SpectrumInfo(
-        modes=ordered_modes,
-        samples=int(tau.size),
-        duration_mbh=duration,
-        dt_mbh=dtau,
-        frequency_min=float(frequency[0]),
-        frequency_max=float(frequency[-1]),
-        theta_nodes=resolved_theta_nodes,
-        phi_nodes=resolved_phi_nodes,
-        taper_alpha=float(taper_alpha),
-        zero_pad_factor=zero_pad_factor,
-        low_frequency_cycles=float(low_frequency_cycles),
-    )
-    return spectrum, info
-
-
-def characteristic_strain(frequency, strain_ft):
-    """Moore et al. Eq. (17), using a continuous-transform normalization."""
-    return 2.0 * np.asarray(frequency, dtype=float) * np.abs(strain_ft)
-
-
-def cumulative_snr(frequency, strain_ft, noise_psd, fmin, fmax):
-    frequency = np.asarray(frequency, dtype=float)
-    strain_ft = np.asarray(strain_ft, dtype=complex)
-    noise_psd = np.asarray(noise_psd, dtype=float)
-    selected = (
-        np.isfinite(frequency)
-        & np.isfinite(strain_ft.real)
-        & np.isfinite(strain_ft.imag)
-        & np.isfinite(noise_psd)
-        & (noise_psd > 0.0)
-        & (frequency >= float(fmin))
-        & (frequency <= float(fmax))
-    )
-    out = np.full(frequency.shape, np.nan, dtype=float)
-    if np.count_nonzero(selected) < 2:
-        return out
-
-    f = frequency[selected]
-    integrand = 4.0 * np.square(np.abs(strain_ft[selected])) / noise_psd[selected]
-    area = 0.5 * (integrand[1:] + integrand[:-1]) * np.diff(f)
-    snr2 = np.empty(f.size, dtype=float)
-    snr2[0] = 0.0
-    snr2[1:] = np.cumsum(area)
-    out[selected] = np.sqrt(np.maximum(snr2, 0.0))
-    return out
 
 
 def wigner_small_d(ell: int, m_prime: int, m: int, theta: float) -> float:
@@ -605,36 +806,6 @@ def _log_interpolate_curve(curve: DetectorCurve, frequency) -> np.ndarray:
     )
 
 
-def effective_detector_asd(detector: str, frequency, curves) -> np.ndarray:
-    """Effective ASD for which 4*int h_res^2/S_eff df is the sky-averaged SNR^2.
-
-    The detector sees F+ h+ + Fx hx. Averaging over sky position and
-    polarization angle gives <F+^2> = <Fx^2> = 1/5 for a right-angle
-    interferometer and <F+ Fx> = 0, so <|F+h+ + Fx hx|^2> = (2/5) h_res^2 with
-    Eq. (8) h_res^2 = (|h+|^2+|hx|^2)/2. Hence S_eff = (5/2) S_instrument.
-    The same SNR follows by applying sqrt(2/5) to h_res and using the raw PSD.
-    Tests pin this averaged response directly; they do not reproduce Wessel's
-    published numerical SNRs or establish its input-curve convention.
-    """
-    if detector == "decigo":
-        return np.sqrt(2.5) * _decigo_instrument_asd(frequency)
-    asd = _log_interpolate_curve(curves[detector], frequency)
-    if detector in {"ligo", "ce"}:
-        return np.sqrt(2.5) * asd
-    if detector == "et":
-        # CoBA's input is a single 90-degree equivalent. Three independent
-        # 60-degree Michelsons give sqrt(3)*sin(60)=3/2 network amplitude gain.
-        return np.sqrt(2.5) / 1.5 * asd
-    if detector == "lisa":
-        # SciRDv1 S_h is one Michelson channel averaged per polarization
-        # (20/3; exactly twice Robson+2019 at low f). Two independent channels
-        # (A, E) halve it, and the h_res convention halves it again.
-        return 0.5 * asd
-    raise ValueError(f"Unknown detector {detector!r}")
-
-
-# Observer scaling: f_obs = nu / [(1+z) G M_BH/c^3]. M_BH is not M_ADM.
-
 @dataclass(frozen=True)
 class FlatLambdaCDM:
     """Small dependency-free flat-Lambda-CDM distance model.
@@ -682,30 +853,14 @@ class FlatLambdaCDM:
         return float(values) if np.isscalar(distance_mpc) else values
 
 
-def observer_spectrum(
-    spectrum: DimensionlessSpectrum,
-    source_bh_mass_msun: float,
-    luminosity_distance_mpc: float,
-    redshift: float = 0.0,
-):
-    """Scale a dimensionless waveform into observer-frame Hz and strain/Hz."""
-    source_mass = float(source_bh_mass_msun)
-    distance = float(luminosity_distance_mpc)
-    z = float(redshift)
-    if source_mass <= 0.0 or distance <= 0.0 or z < 0.0:
-        raise ValueError("source mass and distance must be positive and redshift nonnegative")
-
-    redshifted_mass = source_mass * (1.0 + z)
-    time_scale = redshifted_mass * SECONDS_PER_M_SUN
-    amplitude_scale = redshifted_mass * METERS_PER_M_SUN / (distance * METERS_PER_MPC)
-    frequency = np.asarray(spectrum.frequency, dtype=float) / time_scale
-    strain_ft = np.asarray(spectrum.strain_ft, dtype=complex) * amplitude_scale * time_scale
-    return frequency, strain_ft
-
-
 # SNR integration and distance roots. Binning speeds up the mass/redshift scan.
 
 def _bin_spectral_power(spectrum: DimensionlessSpectrum, bins: int) -> BinnedSpectralPower:
+    """Keep integrated |q_tilde|^2 dnu in logarithmic frequency bins.
+
+    Each bin stores integrated power, not a PSD sample. This reduces the
+    mass/redshift scan cost while retaining the trapezoidal spectral weights.
+    """
     frequency = np.asarray(spectrum.frequency, dtype=float)
     power = np.square(np.abs(np.asarray(spectrum.strain_ft, dtype=complex)))
     keep = np.isfinite(frequency) & np.isfinite(power) & (frequency > 0.0) & (power >= 0.0)
@@ -733,20 +888,25 @@ def _bin_spectral_power(spectrum: DimensionlessSpectrum, bins: int) -> BinnedSpe
 
 
 def _snr_from_binned_power(binned, detector, redshifted_mass, distance, curves):
+    """Evaluate SNR at redshifted BH mass [solar masses] and distance [Mpc].
+
+    With strain scale A and time scale T, |h_tilde| = A*T*|q_tilde| and
+    df = dnu/T. Thus SNR^2 = 4*A^2*T*sum(bin_power / effective_PSD).
+    """
     if binned.frequency.size == 0 or redshifted_mass <= 0.0 or distance <= 0.0:
         return 0.0
-    time_scale = redshifted_mass * SECONDS_PER_M_SUN
-    frequency = binned.frequency / time_scale
-    lower, upper = DETECTOR_BOUNDS[detector]
-    keep = (frequency >= lower) & (frequency <= upper)
+    time_scale_seconds = redshifted_mass * SECONDS_PER_M_SUN
+    frequency_hz = binned.frequency / time_scale_seconds
+    minimum_hz, maximum_hz = DETECTOR_BOUNDS[detector]
+    keep = (frequency_hz >= minimum_hz) & (frequency_hz <= maximum_hz)
     if np.count_nonzero(keep) < 2:
         return 0.0
-    asd = effective_detector_asd(detector, frequency[keep], curves)
-    amplitude = redshifted_mass * METERS_PER_M_SUN / (distance * METERS_PER_MPC)
+    asd = effective_detector_asd(detector, frequency_hz[keep], curves)
+    strain_scale = redshifted_mass * METERS_PER_M_SUN / (distance * METERS_PER_MPC)
     snr_squared = (
         4.0
-        * amplitude**2
-        * time_scale
+        * strain_scale**2
+        * time_scale_seconds
         * np.sum(binned.power_dfrequency[keep] / np.square(asd))
     )
     return float(np.sqrt(max(snr_squared, 0.0)))
@@ -789,147 +949,6 @@ def _threshold_redshift(binned, detector, source_mass, curves, cosmology, *, ref
     y1 = np.log(max(snr[last + 1], np.finfo(float).tiny))
     fraction = np.clip((np.log(SNR_THRESHOLD) - y0) / (y1 - y0), 0., 1.) if not np.isclose(y0, y1) else 0.
     return float(lower + fraction * (upper - lower))
-
-
-def horizon_curves(spectra, curves, cosmology):
-    masses = np.logspace(
-        np.log10(HORIZON_MASS_RANGE_MSUN[0]),
-        np.log10(HORIZON_MASS_RANGE_MSUN[1]),
-        int(HORIZON_MASS_SAMPLES),
-    )
-    # Include exact example masses so their crosses lie on the drawn curves.
-    masses = np.unique(np.r_[masses, [mass for _, mass, _ in EXAMPLE_TARGETS
-                                     if HORIZON_MASS_RANGE_MSUN[0] <= mass <= HORIZON_MASS_RANGE_MSUN[1]]])
-    threshold_examples = {(detector, mass) for detector, mass, distance in EXAMPLE_TARGETS
-                          if distance is None}
-    result = {detector: {} for detector in active_detectors()}
-    for sim_name, spectrum in spectra.items():
-        binned = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
-        for detector in active_detectors():
-            horizon = np.full_like(masses, np.nan)
-            for mass_index, source_mass in enumerate(masses):
-                z_horizon = _threshold_redshift(
-                    binned, detector, source_mass, curves, cosmology,
-                    refine=(detector, source_mass) in threshold_examples)
-                if np.isfinite(z_horizon):
-                    horizon[mass_index] = cosmology.luminosity_distance_mpc(z_horizon)
-            result[detector][sim_name] = horizon
-    return masses, result
-
-
-# ----------------------------------------------------------------------
-# 3. COMPLETE WORKFLOW: cached modes -> spectra -> SNR -> distance reach
-# ----------------------------------------------------------------------
-
-def spectrum_for_case(case, time, modes, **overrides):
-    options = dict(
-        transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH, taper_alpha=TAPER_ALPHA,
-        zero_pad_factor=ZERO_PAD_FACTOR, low_frequency_cycles=LOW_FREQUENCY_CYCLES,
-        theta_nodes=THETA_NODES, phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING,
-    )
-    options.update(overrides)
-    return direct_psi4_spectrum(time, modes, case.mlittle, **options)
-
-
-def observed_target(spectra, mass, distance, redshift, curves, detector=None):
-    """Apply one shared physical source scale to every case."""
-    strain, snr = {}, {}
-    for name, spectrum in spectra.items():
-        frequency, strain_ft = observer_spectrum(spectrum, mass, distance, redshift)
-        strain[name] = frequency, characteristic_strain(frequency, strain_ft)
-        power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
-        snr[name] = {
-            detector_name: _snr_from_binned_power(power, detector_name, mass * (1 + redshift), distance, curves)
-            for detector_name in active_detectors()
-        }
-    return ObservedTarget(mass, distance, redshift, strain, snr, detector)
-
-
-def example_targets(spectra, curves, cosmology):
-    """Use refined best-case detector reaches, or explicitly fixed distances."""
-    targets = []
-    for detector, mass, distance in EXAMPLE_TARGETS:
-        if detector not in active_detectors():
-            raise ValueError(f"EXAMPLE_TARGETS uses {detector}, which is not in ACTIVE_DETECTORS; "
-                             "remove that example or include its detector")
-        horizon_case = None
-        if distance is None:
-            candidates = []
-            for name, spectrum in spectra.items():
-                power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
-                z = _threshold_redshift(power, detector, mass, curves, cosmology, refine=True)
-                if np.isfinite(z):
-                    candidates.append((float(cosmology.luminosity_distance_mpc(z)), name, z))
-            if not candidates:
-                raise ValueError(f"No {detector} threshold example at {mass:g} solar masses")
-            distance, horizon_case, redshift = max(candidates)
-        else:
-            redshift = cosmology.redshift_at_luminosity_distance(distance)
-        target = observed_target(spectra, mass, distance, redshift, curves, detector)
-        if horizon_case is not None:
-            target.distance_policy = "best-case threshold"
-            target.horizon_case = horizon_case
-        targets.append(target)
-    return targets
-
-
-def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True,
-            radius_index=None, cache_root=None, include_reference=False):
-    """Run steps 1-7; return numerical results, without creating any figures."""
-    print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
-          f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
-          f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, measured duration", flush=True)
-    # Steps 1-4: modes -> windowed FFT -> angular average -> dimensionless strain.
-    radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
-    sources, representative, inner = {}, {}, {}
-    for case in config.all_sim_configs(SIM_NAMES if names is None else names):
-        try:
-            # Reader: the cached columns already have a common retarded-time grid.
-            time, modes = read_rpsi4_modes(case, radius_index, cache_root=cache_root)
-            # Calculation: the function above contains the cut, window, FFT,
-            # harmonic reconstruction, angular average and -(2*pi*f)^-2 step.
-            spectrum, info = direct_psi4_spectrum(
-                time, modes, case.mlittle, transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH,
-                taper_alpha=TAPER_ALPHA, zero_pad_factor=ZERO_PAD_FACTOR,
-                low_frequency_cycles=LOW_FREQUENCY_CYCLES, theta_nodes=THETA_NODES,
-                phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING)
-            sources[case.name] = SourceSpectrum(case, spectrum, info)
-            print(f"{case.name}: radius index {radius_index}, {info.samples} samples "
-                  f"over {info.duration_mbh:.1f} M_BH", flush=True)
-            if compare_direction:
-                representative[case.name] = spectrum_for_case(
-                    case, time, modes, representative_direction=(np.pi/2.34, 0.))[0]
-            if compare_radius:
-                inner_time, inner_modes = read_rpsi4_modes(case, FIRST_RADIUS_INDEX, cache_root=cache_root)
-                inner_spectrum, inner_info = spectrum_for_case(case, inner_time, inner_modes)
-                inner[case.name] = SourceSpectrum(case, inner_spectrum, inner_info)
-        except (OSError, ValueError, KeyError) as exc:
-            raise ValueError(f"{case.name}: {exc}") from exc
-    if not sources:
-        raise ValueError("No valid direct-Psi4 spectra were produced")
-    spectra = {name: source.spectrum for name, source in sources.items()}
-
-    # Step 5: detector noise. Use exactly the same effective ASD for h_n and SNR.
-    curves = load_detector_curves()
-    noise = {}
-    for detector in active_detectors():
-        low, high = DETECTOR_BOUNDS[detector]
-        frequency = np.geomspace(low, high, 500)
-        noise[detector] = frequency, np.sqrt(frequency) * effective_detector_asd(detector, frequency, curves)
-
-    # Step 6: source choices; redshift follows the same cosmology as SNR.
-    cosmology = FlatLambdaCDM(z_max=max(12.0, HORIZON_REDSHIFT_MAX + 0.5))
-    targets = example_targets(spectra, curves, cosmology)
-
-    shibata = None
-    if include_reference:
-        redshift = cosmology.redshift_at_luminosity_distance(SHIBATA_DISTANCE_MPC)
-        shibata = observed_target(spectra, SHIBATA_BH_MASS_MSUN, SHIBATA_DISTANCE_MPC,
-                                  redshift, curves)
-
-    # Step 7: SNR^2 = integral (h_c/h_n)^2 d ln f; threshold luminosity distance.
-    horizons = horizon_curves(spectra, curves, cosmology) if compute_horizons else None
-    return DetectabilityResult(sources, inner, representative, noise, targets, horizons, shibata)
 
 
 # ----------------------------------------------------------------------
@@ -1015,6 +1034,7 @@ def example_source_info(result):
 
 
 def _example_caption(examples, note=None):
+    statistic = "RMS" if SOURCE_AVERAGING == "rms" else "mean"
     details = []
     for row in examples:
         mass = _scientific_label(row["mass_msun"])
@@ -1028,7 +1048,7 @@ def _example_caption(examples, note=None):
     caption = (
         r"\caption{Top: SNR-threshold luminosity-distance reach versus source-frame "
         r"initial BH mass, with redshift on the right axis. Bottom: source-direction "
-        r"mean characteristic strain $\langle h_c(f)\rangle$ for four illustrative "
+        + statistic + r" characteristic strain for illustrative "
         r"source scales and the corresponding effective detector characteristic "
         r"noise $h_n^{\mathrm{eff}}(f)=\sqrt{f S_n^{\mathrm{eff}}(f)}$. Colours identify the "
         r"simulation cases in both panels; line styles identify the detectors "
@@ -1036,15 +1056,20 @@ def _example_caption(examples, note=None):
         r"The crosses in the distance panel and letter labels in the strain panel "
         r"refer to the same example sources: " + "; ".join(details) + ". "
         r"Each reported SNR is the largest among the plotted simulation cases and "
-        r"detectors, using the selected-mode source-direction mean-amplitude "
-        r"spectrum. Each example lies on the uppermost SNR=8 reach curve "
-        r"at its fixed source mass, ordered from low to high mass: CE for "
-        r"(a) and (b), DECIGO for (c), and LISA for (d). Distances are solved "
-        r"using the same cosmology and "
-        r"source-direction mean-amplitude statistic as the plotted reaches. "
-        r"Example (a) uses a $10\,M_\odot$ BH as an illustrative BH--NS "
-        r"remnant scale, not a simulated merger waveform. ")
+        r"detectors, using the selected-mode source-direction " + statistic + r"-amplitude "
+        r"spectrum. ")
+    if examples and all(row["distance_policy"] == "best-case threshold" for row in examples):
+        caption += (rf"Each example lies on the uppermost SNR={SNR_THRESHOLD:g} reach curve "
+                    r"in its chosen detector band at its source mass. ")
+    else:
+        caption += (r"Example distances are either prescribed or set to the best-case "
+                    r"SNR threshold in the chosen detector band, as recorded with the source parameters. ")
+    caption += (r"Distances and redshifts use the same cosmology and source-direction "
+                + statistic + r"-amplitude statistic as the plotted reaches. ")
     for row in examples:
+        if row["mass_msun"] == 10:
+            caption += (rf'Example ({row["label"]}) uses a $10\,M_\odot$ BH as an illustrative BH--NS '
+                        r"remnant scale, not a simulated merger waveform. ")
         if row["band_detector"] != row["detector"]:
             detector = DETECTOR_CURVE_LABELS.get(
                 row["band_detector"], DETECTOR_LABELS[row["band_detector"]])
@@ -1143,7 +1168,9 @@ def _draw_characteristic_strain(ax, result, *, fixed_source=False, note=None,
     for detector, (frequency, hn) in result.noise.items():
         ax.plot(frequency, hn, color=DETECTOR_COLOR, linewidth=1.25,
                 linestyle=DETECTOR_LINESTYLES[detector], label="_nolegend_")
-    ax.set(xlabel=r"$f_{\mathrm{obs}}\,[\mathrm{Hz}]$", ylabel=r"$\langle h_c(f)\rangle$",
+    strain_label = (r"$\langle h_c(f)\rangle$" if SOURCE_AVERAGING == "mean"
+                    else r"$\sqrt{\langle h_c^2(f)\rangle}$")
+    ax.set(xlabel=r"$f_{\mathrm{obs}}\,[\mathrm{Hz}]$", ylabel=strain_label,
            yscale="log", ylim=CHARACTERISTIC_YLIM,
            xlim=(min(f[0] for f, _ in result.noise.values()), max(f[-1] for f, _ in result.noise.values())))
     _format_axes([ax])
@@ -1201,22 +1228,22 @@ def plot_combined(result, args, *, filename, note=None,
     extra_rows = max(0, len(examples) - 3)
     height = DETECTABILITY_HEIGHT + (EXAMPLE_KEY_HEIGHT + .18 * extra_rows
                                     if example_labels == "key" else 0)
-    fig, axes = plt.subplots(2, 1, figsize=figure_size("double", height),
+    fig, (distance_ax, strain_ax) = plt.subplots(2, 1, figsize=figure_size("double", height),
                              gridspec_kw={"height_ratios": (1.5, 1)})
-    _draw_horizon(axes[0], result, legend=False)
+    _draw_horizon(distance_ax, result, legend=False)
     for row in examples:
-        axes[0].plot(row["mass_msun"], row["distance_mpc"], marker="+",
+        distance_ax.plot(row["mass_msun"], row["distance_mpc"], marker="+",
                      color="black", markersize=7, markeredgewidth=1.1,
                      linestyle="none", zorder=5)
         offset = (5, -14)
         if row["band_detector"] == "ce":
             offset = (-16, 6) if row["mass_msun"] == 10 else (5, 5)
-        axes[0].annotate(rf'$({row["label"]})$', (row["mass_msun"], row["distance_mpc"]),
+        distance_ax.annotate(rf'$({row["label"]})$', (row["mass_msun"], row["distance_mpc"]),
                          xytext=offset, textcoords="offset points", fontsize=10)
-    _draw_characteristic_strain(axes[1], result, legend=False, example_labels=example_labels)
-    axes[1].set(xlim=COMBINED_FREQUENCY_LIMITS, ylim=COMBINED_STRAIN_LIMITS)
+    _draw_characteristic_strain(strain_ax, result, legend=False, example_labels=example_labels)
+    strain_ax.set(xlim=COMBINED_FREQUENCY_LIMITS, ylim=COMBINED_STRAIN_LIMITS)
     # Scale typography and strokes to these deliberately short panels.
-    for ax in axes:
+    for ax in (distance_ax, strain_ax):
         ax.xaxis.label.set_fontsize(11)
         ax.yaxis.label.set_fontsize(11)
         ax.tick_params(which="major", labelsize=9, length=4, width=.8, pad=3)
@@ -1229,19 +1256,19 @@ def plot_combined(result, args, *, filename, note=None,
             line.set_linewidth(1.05)
         for text in ax.texts:
             text.set_fontsize(9)
-    for secondary in axes[0].child_axes:
+    for secondary in distance_ax.child_axes:
         secondary.yaxis.label.set_fontsize(11)
         secondary.tick_params(which="major", labelsize=HORIZON_REDSHIFT_TICK_SIZE,
                               length=4, width=.8, pad=3)
         for spine in secondary.spines.values():
             spine.set_linewidth(.8)
     # Both lower-panel quantities share the same dimensionless amplitude scale.
-    noise_axis = axes[1].secondary_yaxis("right")
+    noise_axis = strain_ax.secondary_yaxis("right")
     noise_axis.set_ylabel(r"$h_n^{\mathrm{eff}}(f)$", fontsize=11, labelpad=6)
     noise_axis.yaxis.set_major_locator(NullLocator())
     noise_axis.yaxis.set_minor_locator(NullLocator())
     noise_axis.spines["right"].set_linewidth(.8)
-    axes[1].tick_params(axis="y", which="both", right=False)
+    strain_ax.tick_params(axis="y", which="both", right=False)
     # Keep both keys outside the data, in one compact horizontal strip.
     bottom = .13
     gap = .42 if note else .32
@@ -1252,7 +1279,7 @@ def plot_combined(result, args, *, filename, note=None,
         gap = .66
         top = .90
     fig.subplots_adjust(left=.11, right=.89, bottom=bottom, top=top, hspace=gap)
-    lower_top = axes[1].get_position().y1
+    lower_top = strain_ax.get_position().y1
     legend_offset = .26 if note and example_labels != "key" else .10
     legend_y = lower_top + legend_offset / height
     if example_labels == "inline":
@@ -1312,6 +1339,16 @@ TAIL_FIT_LIMITS = dict(mass=0.01, amplitude=0.25, phase=0.5, holdout=0.5)
 TAIL_MAX_SAMPLES = 2_000_000  # Abort, never shorten a tail silently.
 TAIL_JOIN_ORBITS, TAIL_TAPER_ORBITS = 1.0, 3.0
 TAIL_REVIEW_CASES = ("A1",)  # Empty tuple disables conditional examples.
+
+
+def spectrum_for_case(case, time, modes, **overrides):
+    options = dict(
+        transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH, taper_alpha=TAPER_ALPHA,
+        zero_pad_factor=ZERO_PAD_FACTOR, low_frequency_cycles=LOW_FREQUENCY_CYCLES,
+        theta_nodes=THETA_NODES, phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING,
+    )
+    options.update(overrides)
+    return direct_psi4_spectrum(time, modes, case.mlittle, **options)
 
 
 def orbital_spectrum(case, spectrum):
@@ -2046,7 +2083,7 @@ def validation_main(argv=None):
 def main(argv=None):
     import argparse
     p = argparse.ArgumentParser(
-        description="Measured GW spectra, SNR=8 reach and combined figure.",
+        description=f"Measured GW spectra, SNR={SNR_THRESHOLD:g} reach and combined figure.",
         epilog="Saves figures/gw/detectability/radius_<index>.png and .pdf, plus caption "
                "and source parameters. Copied caches: see notes/run_combined_gw_plot.md.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)

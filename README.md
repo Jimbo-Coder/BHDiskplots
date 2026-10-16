@@ -29,7 +29,7 @@ Shared cache readers, units and TeX/Palatino style remain shared.
 
 | Task | Command | Where to edit |
 | --- | --- | --- |
-| Combined distance + strain figure | `python gw_detectability.py` | Section 1: physical choices; `analyze`: workflow; section 4: Matplotlib |
+| Combined distance + strain figure | `python gw_detectability.py` | Section 1: physical choices; section 2: `analyze` and signal equations; section 4: Matplotlib |
 | Different extraction radius | `python gw_detectability.py --radius-index 6` | The same workflow recomputes both panels at that radius |
 | Radius/averaging checks | `python gw_detectability.py --plots radius averaging --sims A1 A3` | Labelled validation calculations and diagnostic drawings in the same file |
 | Modal strain histories | `python -m wip_plots.gw_waveforms --kinds strain --sims A1 A3` | `waveform`, then `plot` |
@@ -40,8 +40,10 @@ Shared cache readers, units and TeX/Palatino style remain shared.
 | Rebuild waveform caches | `python generate_gw.py` | `config.py` selects inputs/backend; `gw.py` implements reading and FFI |
 
 For the combined figure, read settings -> `analyze()` -> `plot_combined()`.
-The measured calculation and main figure come first. Optional diagnostics
-and continuation fits follow in section 5 of the same file. Time-history
+The case loop is immediately after the readers, followed by the signal and
+detector equations it calls. Numerical sampling/quadrature/root routines are
+in section 3; the two named plot axes, `distance_ax` and `strain_ax`, are in
+section 4. Optional diagnostics and continuation fits are in section 5. Time-history
 views live together in `wip_plots/gw_waveforms.py`, which reads each simulation
 once and reuses its radius caches.
 
@@ -78,6 +80,8 @@ To change detectors, update `ACTIVE_DETECTORS` and keep the detector entries in
 `EXAMPLE_TARGETS` within that selection. Axis limits and Matplotlib formatting
 are in section 4. Use `--outdir figures/my_comparison` to keep a parameter
 variant separately; rerunning a radius in the same output root replaces it.
+The generated caption follows the actual example list, including fixed versus
+threshold distances, so changing that list does not leave the original four-source description.
 
 GW caches are ignored by Git. The [combined-figure guide](notes/run_combined_gw_plot.md)
 lists the two files needed per case/radius for a separate clone and explains

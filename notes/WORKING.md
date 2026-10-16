@@ -4,6 +4,16 @@ Last updated: 2026-10-16
 
 ## Current Work
 
+- Oct16 readable calculation pass: the actual detectability case loop now
+  follows the readers near the start of the file. Signal and observer-frame
+  equations follow it in section 2; numerical routines are in section 3.
+  The spectrum calculation shares one polarization reconstruction after
+  selecting directions. Local names carry frequency/time/mass units, result
+  construction uses named fields, and the combined drawing names its distance
+  and strain axes. Source-dependent caption claims now follow the actual
+  examples and distance choices. Same owning file, commands and physical
+  conventions. Evidence: run_logs/gw_readable_20261016/.
+
 - Oct16 fresh-reader walkthrough: started from README and command help, then
   traced the combined figure, a radius change, source/detector edits, waveform
   selection, mismatch and compactness. Batch help now lists plot names;

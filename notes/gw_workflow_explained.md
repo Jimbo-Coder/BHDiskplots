@@ -1340,6 +1340,13 @@ invent an extraction radius from a file index.
 
 ## 17. Where each statement lives in the code
 
+Start at `analyze()` in section 2 of `gw_detectability.py`, immediately after
+its cache readers. The actual spectral and observer-frame equations follow
+it there. Section 3 contains the numerical routines; section 4 draws the
+named `distance_ax` and `strain_ax` panels. The measured calculation's local
+frequency names distinguish inverse BH-mass time (`frequency_mbh`) from
+observed Hz (`frequency_hz`).
+
 | Operation | Implementation |
 | --- | --- |
 | Read 47-column curvature files, mode order, radius multiplication | [gw.py](../gw.py): `Psi4File`, `read_psi4_file`, `mode_columns` |

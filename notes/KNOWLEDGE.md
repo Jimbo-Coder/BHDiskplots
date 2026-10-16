@@ -37,6 +37,11 @@ Shared plot commands accept case names without regard to capitalization and
 reject unknown names. Batch help lists available plot families; per-plot
 options belong on the owning command. Compactness always shows the selected
 six evolved models and has no --sims option.
+The measured case loop starts section 2 of `gw_detectability.py`, after the
+readers; its signal and observer-frame equations follow in that section.
+Section 3 contains numerical routines, section 4 draws the named distance
+and strain axes, and section 5 contains optional diagnostics. The generated
+caption describes the current example list and distance policy.
 
 ## Face-On Strain at 100 Mpc (2026-09-14)
 

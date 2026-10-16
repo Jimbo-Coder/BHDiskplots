@@ -609,7 +609,8 @@ all transients, memory, or nonradiative contamination have been removed.
   results do not establish that mechanism in our runs.
 
 Implementation pointers: [gw.py](../gw.py) (`reconstruct_strain`),
-[gw_detectability.py](../gw_detectability.py) (numbered analysis sections),
+[gw_detectability.py](../gw_detectability.py) (`analyze` and the signal equations
+in section 2, numerical routines in section 3),
 [gw_waveforms.py](../wip_plots/gw_waveforms.py) (face-on time series),
 [gw_waveforms.py](../wip_plots/gw_waveforms.py) (radiated E, J and frequency).
 The combined figure's formatting is in section 4 of
