@@ -36,7 +36,7 @@ class CombinedEntryPointTests(unittest.TestCase):
     def test_strict_mode_stops_instead_of_omitting_missing_case(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "A1.*Missing"):
-                analysis.analyze(["A1"], radius_index=6, cache_root=tmp, strict=True)
+                analysis.analyze(["A1"], radius_index=6, cache_root=tmp)
 
     def test_radius_and_cache_reach_analysis_without_extra_diagnostics(self):
         spectrum = analysis.DimensionlessSpectrum(np.geomspace(.001, .1, 100), np.ones(100), "mean")
@@ -44,7 +44,7 @@ class CombinedEntryPointTests(unittest.TestCase):
                 mock.patch.object(analysis, "direct_psi4_spectrum", return_value=(spectrum, SimpleNamespace(samples=10,duration_mbh=9.))), \
                 mock.patch.object(analysis, "horizon_curves", return_value="reach") as reaches, \
                 mock.patch.object(analysis, "EXAMPLE_TARGETS", (("ce", 50., 100.),)):
-            result = analysis.analyze(["A1"], radius_index=6, cache_root="copied_cache", strict=True)
+            result = analysis.analyze(["A1"], radius_index=6, cache_root="copied_cache")
         self.assertEqual(read.call_count, 1)
         self.assertEqual(read.call_args.args[0].name, "A1")
         self.assertEqual(read.call_args.args[1], 6)
@@ -81,7 +81,7 @@ class CombinedEntryPointTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 command.main(["--cache-dir", tmp, "--radius-index", "6", "--no-save"])
             calculate.assert_called_once_with(list(command.SIM_NAMES), radius_index=6,
-                                              cache_root=Path(tmp), strict=True,
+                                              cache_root=Path(tmp),
                                               compare_radius=False, compare_direction=False,
                                               compute_horizons=True, include_reference=False)
             self.assertEqual(draw.call_args.kwargs["filename"], "gw/detectability/radius_6.png")

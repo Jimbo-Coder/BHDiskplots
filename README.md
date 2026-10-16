@@ -19,7 +19,7 @@ read-only simulation data (scalars, Psi4, 2D slices)
 | `gw_detectability.py` | Measured GW workflow and combined figure: inputs, spectrum, SNR/reach, then Matplotlib |
 | `gw_detectability_extras.py` | Numerical experiments: validation sweeps and conditional continuation fits |
 | `wip_plots/gw_waveforms.py` | All time-domain waveform views: modal histories, ML differences, polarization panels, observer strain, radius/mode comparisons |
-| `gw_mismatch.py` | Two selected strain modes: file reader, manual/kuibit comparison, then diagnostic plot |
+| `gw_mismatch.py` | Two simulation waveforms in one mode: file reader, manual/kuibit comparison, then diagnostic plot |
 | `paper_plots/` | Approved paper figures, registered in `run_paper.py` |
 | `wip_plots/` | Exploratory figures, registered in `run_wip.py` |
 | `helpers/` | Scalar/2D readers, units, shared style |
@@ -88,7 +88,7 @@ uv run python -m unittest discover -s tests -t .
 | `accretion`, `restmass` | `wip/` | AH flux vs mass budget; total rest mass |
 | `toomre` | `wip/toomre*.png` | Newtonian Q, plus Romeo and Meidt variants |
 | `mode_appendix`, `modes_345` | `wip/mode_*`, `wip/modes_345.png` | Mode growth, matter/GW frequency match, C3-C5 |
-| `shibata` | `wip/disk_compactness_*` | Shibata Fig. 5 recreation and comparison |
+| `shibata` | `wip/compactness/` | Shibata Fig. 5 recreation and comparison |
 | `displacement`, `horizon`, `irreducible_mass`, `radii` | `wip/` | BH displacement and horizon diagnostics |
 
 Paper figures keep stable LaTeX-facing names in `figures/`; individual
@@ -108,7 +108,7 @@ The same detectability file produces the combined figure and its checks;
 `--plots` chooses `combined`, `strain`, `distance`, `radius`, `averaging`,
 `reference` or `extrapolation`. Its default is the measured combined figure.
 `run_wip.py detectability` explicitly requests the `BATCH_PLOTS` suite,
-including the labelled extrapolation, and retains the usual paper export names.
+including the labelled extrapolation, using the same command options and output names as a direct invocation.
 
 All time-history views belong to `wip_plots/gw_waveforms.py`. Use `--kinds`
 for modal `psi4`/`strain`, the three ML differences, `strain_panel`, or
@@ -143,10 +143,10 @@ by default; `INCLUDE_SEQUENCES` at the top of the plot module controls that
 default. Existing TeX/Palatino rendering is retained and requires the normal
 TeX Live installation, including Palatino fonts.
 
-Every run saves PNG/PDF variants together in `figures/wip/compactness/`:
-`reference`, `selected_only`, `sequences_zoom`, and `sequences_overview`.
-The stable `figures/wip/disk_compactness_comparison.{png,pdf}` paper-facing files
-use the selected options (default: the sequence overlay without an overview).
+Each run saves `reference` and the selected comparison in
+`figures/wip/compactness/`, as PNG/PDF. The comparison is `sequences_zoom`
+by default, `sequences_overview` with `--overview`, or `selected_only` with
+`--no-sequences`. There are no duplicate exports under older filenames.
 The comparison remains **3.75 inches wide** and 3 inches high. With `--overview`
 it is 4.2 inches high: a small overview shows all 17 A and 43 B models, and the
 main comparison retains its low-mass zoom. Light circles/solid
@@ -181,9 +181,9 @@ files per case/radius. The calculation and drawing are together in
 
 The combined detectability figure is 7 inches wide, with distance reach above
 characteristic strain, exterior legends and lettered source examples following
-Wessel Fig. 10. Related exports live together in `figures/gw/detectability/` as
-`measured` and `conditional` PNG/PDF variants, while the existing
-`figures/gw/gw_detectability_combined{,_time_on}` filenames remain available.
+Wessel Fig. 10. Exports live in `figures/gw/detectability/` as
+`radius_<index>.{png,pdf}` and `radius_<index>_conditional.{png,pdf}`.
+Each figure has one output path; the scripts do not make historical-name copies.
 Their generated `_caption.tex` and `_examples.json` companions
 give masses, luminosity distances, redshifts and SNRs. All four examples solve
 the uppermost SNR=8 distances among the plotted cases at fixed source masses:

@@ -104,6 +104,29 @@ class PythonFFITests(unittest.TestCase):
                 read_strain_cache(workdir, Path("source"))
             self.assertFalse(workdir.exists())
 
+    def test_cache_manifest_is_required_and_bad_metadata_is_not_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            np.savetxt(workdir / "rhphc.dat", np.ones((2, N_PSI4_COLUMNS)))
+            with self.assertRaises(FileNotFoundError):
+                read_strain_cache(workdir, Path("source"))
+            manifest = workdir / "strain_cache.json"
+            manifest.write_text("{bad JSON")
+            with self.assertRaises(json.JSONDecodeError):
+                read_strain_cache(workdir, Path("source"))
+            manifest.write_text(json.dumps({"format_version": 1, "backend": "unknown"}))
+            with self.assertRaisesRegex(ValueError, "unsupported cache"):
+                read_strain_cache(workdir, Path("source"))
+
+    def test_invalid_mass_cannot_silently_disable_normalization(self):
+        from types import SimpleNamespace
+        from helpers.gw_units import normalize_strain, normalize_rpsi4
+
+        sim = SimpleNamespace(config=SimpleNamespace(name="invalid", mlittle=0.))
+        for transform in (normalize_strain, normalize_rpsi4):
+            with self.subTest(transform=transform.__name__), self.assertRaises(ValueError):
+                transform(np.ones(3), sim)
+
     def test_complex_difference_only_uses_shared_time_interval(self):
         time = np.arange(6.)
         result = subtract_waveforms(time, (2 + 3j) * time,

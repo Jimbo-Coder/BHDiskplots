@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from importlib import import_module
 from pathlib import Path
 import sys
 
@@ -12,40 +11,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import PLOTS_DIR
+from paper_plots import rho2d_individual
 from wip_plots.gw_waveforms import individual_main
 from gw_detectability import validation_main
-
-# Critical knobs.
-ALL_SIM_ALIASES = {"all": ["A1", "A2", "A3", "B1", "B2", "B3"]}
-
-INDIVIDUAL_PLOT_MODULES = [
-    ("paper_plots", "rho2d_individual"),
-]
-
-# Operational knobs.
-UNICODE_OPTION_DASHES = "\u2012\u2013\u2014\u2015\u2212"
-
-
-def normalize_option_dashes(argv):
-    normalized = []
-    for arg in argv:
-        if arg and arg[0] in UNICODE_OPTION_DASHES:
-            normalized.append("--" + arg.lstrip(UNICODE_OPTION_DASHES))
-        else:
-            normalized.append(arg)
-    return normalized
-
-
-def expand_sim_args(sims):
-    expanded = []
-    seen = set()
-    for sim in sims:
-        for name in ALL_SIM_ALIASES.get(sim.lower(), [sim]):
-            if name not in seen:
-                expanded.append(name)
-                seen.add(name)
-    return expanded
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run every individual plot for one or more simulations.")
@@ -58,10 +26,10 @@ def main(argv=None):
     )
     parser.add_argument("--no-save", action="store_true", help="Run plots without saving figures")
     parser.add_argument("--show", action="store_true", help="Show figures interactively")
-    raw_argv = sys.argv[1:] if argv is None else argv
-    args = parser.parse_args(normalize_option_dashes(raw_argv))
-
-    sims = expand_sim_args(args.sims)
+    args = parser.parse_args(argv)
+    if "all" in args.sims and args.sims != ["all"]:
+        parser.error("Use 'all' on its own, or list simulation names")
+    sims = ["A1", "A2", "A3", "B1", "B2", "B3"] if args.sims == ["all"] else args.sims
     outdir = args.outdir if args.outdir is not None else PLOTS_DIR
     for sim in sims:
         module_argv = ["--sims", sim, "--outdir", str(outdir)]
@@ -69,10 +37,8 @@ def main(argv=None):
             module_argv.append("--no-save")
         if args.show:
             module_argv.append("--show")
-        for package_name, module_name in INDIVIDUAL_PLOT_MODULES:
-            print(f"running {module_name} for {sim}")
-            module = import_module(f"{package_name}.{module_name}")
-            module.main(module_argv)
+        print(f"running rho2d_individual for {sim}")
+        rho2d_individual.main(module_argv)
 
         individual_main(module_argv)
 

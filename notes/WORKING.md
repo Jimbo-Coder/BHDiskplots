@@ -4,6 +4,15 @@ Last updated: 2026-10-16
 
 ## Current Work
 
+- Oct16 current-contract cleanup: removed the detectability batch switch,
+  historical export copies (GW and compactness), target-attribute defaults,
+  silent cache-metadata recovery, and argument-rewriting/alias machinery in
+  the individual runner. The runner now passes explicit plot selections to
+  the same main command. Missing metadata, invalid physical scales and a
+  failed requested detectability case raise errors. FFI conventions and
+  numerical equations are unchanged. Compactness runs draw the reference
+  plus the requested variant. Evidence: run_logs/gw_current_contract_20261016/.
+
 - Oct16 plot-family consolidation: waveform histories, the polarization grid
   and face-on observer strain now live together in `wip_plots/gw_waveforms.py`.
   All detectability drawings now live in `gw_detectability.py`; optional fit

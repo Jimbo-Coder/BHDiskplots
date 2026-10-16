@@ -869,7 +869,7 @@ def example_targets(spectra, curves, cosmology):
 
 
 def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True,
-            radius_index=None, cache_root=None, strict=False, include_reference=False):
+            radius_index=None, cache_root=None, include_reference=False):
     """Run steps 1-7; return numerical results, without creating any figures."""
     print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
           f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
@@ -895,15 +895,13 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
                 representative[case.name] = spectrum_for_case(
                     case, time, modes, representative_direction=(np.pi/2.34, 0.))[0]
         except (OSError, ValueError, KeyError) as exc:
-            if strict:
-                raise ValueError(f"{case.name}: {exc}") from exc
-            print(f"{case.name}: skipping detectability; {exc}", flush=True)
+            raise ValueError(f"{case.name}: {exc}") from exc
     if not sources:
         raise ValueError("No valid direct-Psi4 spectra were produced")
     inner = {}
     if compare_radius:
         from gw_detectability_extras import source_spectra
-        inner = source_spectra(names, FIRST_RADIUS_INDEX, cache_root=cache_root, strict=strict)[0]
+        inner = source_spectra(names, FIRST_RADIUS_INDEX, cache_root=cache_root)[0]
     spectra = {name: source.spectrum for name, source in sources.items()}
 
     # Step 5: detector noise. Use exactly the same effective ASD for h_n and SNR.
@@ -932,7 +930,6 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
 # ----------------------------------------------------------------------
 # 4. PLOT AND FORMAT: distance panel above characteristic strain
 # ----------------------------------------------------------------------
-import shutil
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator, ScalarFormatter
@@ -948,8 +945,6 @@ from helpers.style import (
     PAPER_THREE_PANEL_HEIGHT,
 )
 
-OUTPUT_FILENAME_COMBINED = "gw/gw_detectability_combined.png"
-OUTPUT_FILENAME_COMBINED_TIME_ON = "gw/gw_detectability_combined_time_on.png"
 DETECTOR_LABELS = {
     "ligo": r"$\mathrm{LIGO\ A+}$", "ce": r"$\mathrm{Cosmic\ Explorer}$",
     "decigo": r"$\mathrm{DECIGO}$", "lisa": r"$\mathrm{LISA\ (SciRDv1)}$",
@@ -1009,8 +1004,8 @@ def example_source_info(result):
                              max_snr=snr, case=name, detector=detector,
                              band_detector=target.detector,
                              band_snr=band_snr, band_case=band_case,
-                             distance_policy=getattr(target, "distance_policy", "fixed"),
-                             horizon_case=getattr(target, "horizon_case", None)))
+                             distance_policy=target.distance_policy,
+                             horizon_case=target.horizon_case))
     return examples
 
 
@@ -1192,7 +1187,7 @@ def _draw_horizon(ax, result, *, note=None, legend=True):
                 fontsize=SOURCE_LABEL_SIZE)
 
 
-def plot_combined(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note=None,
+def plot_combined(result, args, *, filename, note=None,
                         example_labels=EXAMPLE_LABEL_STYLE, write_metadata=True):
     """Distance above characteristic strain, following Wessel Fig. 10's layout."""
     if example_labels not in {"inline", "caption", "key"}:
@@ -1290,14 +1285,6 @@ def plot_combined(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note=None,
             path.with_name(path.stem + "_caption.tex").write_text(_example_caption(examples, note))
     with plt.rc_context({"savefig.bbox": None}):
         savefig(fig, args, filename)
-    if not args.no_save and filename in {OUTPUT_FILENAME_COMBINED, OUTPUT_FILENAME_COMBINED_TIME_ON}:
-        # Keep related variants together and preserve existing paper-facing paths.
-        variant = "conditional" if filename == OUTPUT_FILENAME_COMBINED_TIME_ON else "measured"
-        family = Path(args.outdir) / "gw" / "detectability"
-        family.mkdir(parents=True, exist_ok=True)
-        suffixes = [".png", ".pdf"] + (["_caption.tex", "_examples.json"] if write_metadata else [])
-        for suffix in suffixes:
-            shutil.copyfile(path.with_name(path.stem + suffix), family / (variant + suffix))
 
 
 # 5. DIAGNOSTIC VIEWS: same spectra/units, different questions.
@@ -1479,7 +1466,7 @@ def _plot_extrapolation(result, args):
     # available separately, with its own unchanged output name.
     updated.horizons = horizon_curves(spectra, curves, cosmology)
     plot_combined(
-        updated, args, filename=OUTPUT_FILENAME_COMBINED_TIME_ON, note=note)
+        updated, args, filename=f"gw/detectability/radius_{args.radius_index}_conditional.png", note=note)
     report = dict(input="direct Psi4 FFT for both off and on", modes=MODES,
                   extended_mode=[2, 2], cases=reports,
                   off=[dict(mass=t.mass, distance=t.distance, snr=t.snr) for t in result.targets],
@@ -1685,7 +1672,7 @@ def validation_main(argv=None):
 
 
 # 6. COMMAND: select inputs -> calculate what is requested -> draw and save.
-def main(argv=None, *, batch=False):
+def main(argv=None):
     import argparse
     p = argparse.ArgumentParser(description="Measured GW spectra, SNR=8 reach and combined figure.")
     p.add_argument("--sims", nargs="+", default=list(SIM_NAMES))
@@ -1698,7 +1685,7 @@ def main(argv=None, *, batch=False):
                    help="Directory containing A1_psi4*, A2_psi4*, A3_psi4* caches")
     p.add_argument("--example-labels", choices=("caption", "key", "inline"), default=EXAMPLE_LABEL_STYLE)
     p.add_argument("--plots", nargs="+", choices=AVAILABLE_PLOTS,
-                   default=BATCH_PLOTS if batch else ("combined",), metavar="NAME",
+                   default=("combined",), metavar="NAME",
                    help="Choose from %(choices)s; default: %(default)s")
     args = p.parse_args(argv)
     requested = set(args.plots)
@@ -1728,7 +1715,7 @@ def main(argv=None, *, batch=False):
     #    waveforms at one radius and never loads the scalar/continuation model.
     try:
         result = analyze(
-            args.sims, radius_index=args.radius_index, cache_root=args.cache_dir, strict=True,
+            args.sims, radius_index=args.radius_index, cache_root=args.cache_dir,
             compare_radius="radius" in requested, compare_direction="averaging" in requested,
             compute_horizons=bool(requested & {"combined", "distance"}),
             include_reference="reference" in requested)
@@ -1741,10 +1728,7 @@ def main(argv=None, *, batch=False):
     args.outdir.mkdir(parents=True, exist_ok=True)
     filename = f"gw/detectability/radius_{args.radius_index}.png"
     if "combined" in requested:
-        # The batch runner retains the paper-facing export; direct runs name
-        # the extraction index so radius experiments do not overwrite it.
-        combined_filename = OUTPUT_FILENAME_COMBINED if batch else filename
-        plot_combined(result, args, filename=combined_filename, example_labels=args.example_labels)
+        plot_combined(result, args, filename=filename, example_labels=args.example_labels)
     if "strain" in requested:
         _plot_characteristic_strain(result, args)
     if "distance" in requested:
@@ -1760,7 +1744,7 @@ def main(argv=None, *, batch=False):
 
     # 4. Save the radius/input list alongside the figure, caption and example SNRs.
     if "combined" in requested and not args.no_save:
-        path = args.outdir / combined_filename
+        path = args.outdir / filename
         path.with_name(path.stem+"_inputs.json").write_text(json.dumps(inputs, indent=2)+"\n")
         print(f"Figure: {path.resolve()} (and .pdf)", flush=True)
         print(f"Caption and source parameters: {path.with_suffix('').resolve()}_caption.tex / _examples.json", flush=True)

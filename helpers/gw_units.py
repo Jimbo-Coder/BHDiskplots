@@ -12,25 +12,19 @@ SECONDARY_AXIS_YTICK_PAD = 9
 GW_TIME_SCALES = ("M_BH", "M_ADM", "P_c", "code")
 
 
-def gw_bh_mass(sim) -> float | None:
-    """Configured initial central-BH mass scale in raw simulation code units."""
-    mass = getattr(sim.config, "mlittle", None)
-    if mass is None:
-        return None
-    mass = float(mass)
-    if not np.isfinite(mass) or mass <= 0.0:
-        return None
+def gw_bh_mass(sim) -> float:
+    """Configured initial central-BH mass scale in simulation code units."""
+    mass = float(sim.config.mlittle)
+    if not np.isfinite(mass) or mass <= 0:
+        raise ValueError(f"{sim.config.name}: invalid initial BH mass {mass}")
     return mass
 
 
-def gw_adm_mass(sim) -> float | None:
-    """Total ADM mass used by the Psi4-to-strain reconstruction."""
-    mass = getattr(sim.config, "gw_madm", None)
-    if mass is None:
-        return None
-    mass = float(mass)
-    if not np.isfinite(mass) or mass <= 0.0:
-        return None
+def gw_adm_mass(sim) -> float:
+    """Total ADM mass used for the retarded-time reconstruction."""
+    mass = float(sim.config.gw_madm)
+    if not np.isfinite(mass) or mass <= 0:
+        raise ValueError(f"{sim.config.name}: invalid total ADM mass {mass}")
     return mass
 
 
@@ -44,9 +38,8 @@ def disk_rest_mass_code(sim) -> float:
 
 def normalize_rpsi4(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
     values = np.asarray(values)
-    mass = gw_bh_mass(sim)
-    if normalize_by_m and mass is not None:
-        return mass * values
+    if normalize_by_m:
+        return gw_bh_mass(sim) * values
     return values
 
 
@@ -59,9 +52,8 @@ def normalize_rpsi4_by_disk_mass(values, sim, normalize_by_m: bool = GW_NORMALIZ
 
 def normalize_strain(values, sim, normalize_by_m: bool = GW_NORMALIZE_BY_M):
     values = np.asarray(values)
-    mass = gw_bh_mass(sim)
-    if normalize_by_m and mass is not None:
-        return values / mass
+    if normalize_by_m:
+        return values / gw_bh_mass(sim)
     return values
 
 
@@ -80,12 +72,12 @@ def gw_time_divisor(sim, time_scale: str = GW_TIME_SCALE) -> float:
     elif time_scale == "M_ADM":
         divisor = gw_adm_mass(sim)
     elif time_scale == "P_c":
-        divisor = float(getattr(sim.config, "Pc", np.nan))
+        divisor = float(sim.config.Pc)
     else:
         raise ValueError(
             f"Unknown GW time scale {time_scale!r}; choose from {GW_TIME_SCALES}"
         )
-    if divisor is None or not np.isfinite(divisor) or divisor <= 0.0:
+    if not np.isfinite(divisor) or divisor <= 0.0:
         raise ValueError(
             f"{sim.config.name}: invalid divisor {divisor!r} for GW time scale {time_scale}"
         )
@@ -188,8 +180,6 @@ def extraction_radius_label(sim):
     radius = sim.psi4_radius
     if radius is None:
         radius = loaded_areal_radius(sim)
-    if radius is None:
-        return rf"$i_{{par}}={sim.parfile_index}$"
     if radius == 0:
         text = "0"
     else:
@@ -204,21 +194,17 @@ def extraction_radius_label(sim):
     return rf"$r={text}$"
 
 
-def loaded_radius_label(sim, parfile_index):
+def loaded_radius_label(sim):
     radius = loaded_areal_radius(sim)
-    if radius is None:
-        return extraction_radius_label(sim)
     return rf"$r_A\simeq {radius:.3g}$"
 
 
-def loaded_radius_tag(sim, parfile_index):
-    radius = getattr(sim, "psi4_radius", None)
+def loaded_radius_tag(sim):
+    radius = sim.psi4_radius
     if radius is not None:
         radius = float(radius)
     if radius is None or not np.isfinite(radius):
         radius = loaded_areal_radius(sim)
-    if radius is None:
-        return f"i{int(parfile_index) + 1}"
     if np.isclose(radius, round(radius)):
         radius_text = str(int(round(radius)))
     else:

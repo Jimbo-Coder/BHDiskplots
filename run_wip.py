@@ -59,7 +59,7 @@ def main(argv=None):
                 module.main([], kinds=[key for key in requested if WIP_PLOTS[key] == module_name])
                 waveforms_done = True
         elif name == "detectability":
-            module.main([], batch=True)
+            module.main(["--plots", *module.BATCH_PLOTS])
         else:
             module.main([])
 

@@ -376,7 +376,7 @@ def temporal_trial_for_case(case):
 
 
 def source_spectra(names=None, radius_index=core.OUTER_RADIUS_INDEX, representative=False, *,
-                   cache_root=None, strict=False):
+                   cache_root=None):
     sources, directions = {}, {}
     for case in config.all_sim_configs(core.SIM_NAMES if names is None else names):
         try:
@@ -390,7 +390,5 @@ def source_spectra(names=None, radius_index=core.OUTER_RADIUS_INDEX, representat
             print(f"{case.name}: radius index {radius_index}, {len(info.modes)} modes, "
                   f"{info.samples} samples over {info.duration_mbh:.1f} M_BH", flush=True)
         except (OSError, ValueError, KeyError) as exc:
-            if strict:
-                raise ValueError(f"{case.name}: {exc}") from exc
-            print(f"{case.name}: skipping detectability; {exc}", flush=True)
+            raise ValueError(f"{case.name}: {exc}") from exc
     return sources, directions

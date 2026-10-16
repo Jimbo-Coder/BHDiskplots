@@ -12,7 +12,6 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
-import shutil
 import sys
 
 if __package__ in (None, ""):
@@ -234,8 +233,8 @@ def main(argv=None):
         argument_parser.error("--overview requires --sequences")
     setup(args)
     selected = "sequences_overview" if args.overview else "sequences_zoom" if args.sequences else "selected_only"
-    variants = ((False, False, False, "reference"), (True, False, False, "selected_only"),
-                (True, True, False, "sequences_zoom"), (True, True, True, "sequences_overview"))
+    variants = ((False, False, False, "reference"),
+                (True, args.sequences, args.overview, selected))
     for include_ours, sequences, overview, name in variants:
         fig = plot(include_ours, include_sequences=sequences, sequence_overview=overview)
         try:
@@ -247,11 +246,6 @@ def main(argv=None):
                     fig.savefig(path)
                     print(f"saved {path}")
                 savefig(fig, args, f"wip/compactness/{name}.png")
-                if not args.no_save and name in ("reference", selected):
-                    alias = "disk_compactness_reference" if name == "reference" else "disk_compactness_comparison"
-                    for suffix in ("png", "pdf"):
-                        shutil.copyfile(args.outdir / "wip" / "compactness" / f"{name}.{suffix}",
-                                        args.outdir / "wip" / f"{alias}.{suffix}")
         finally:
             plt.close(fig)
 

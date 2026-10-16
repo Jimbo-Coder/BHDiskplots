@@ -258,7 +258,7 @@ def plot(sims, mode, parfile_index, kind, difference_results=None):
     ell, emm = mode
     mode_text = f"{ell}{emm}"
     if is_difference:
-        title = rf"$({ell},{emm})$; {units.loaded_radius_label(reference, parfile_index)}; "
+        title = rf"$({ell},{emm})$; {units.loaded_radius_label(reference)}; "
         title += r"strain from disk-ML $\Psi_4$" if kind == "strain_from_psi4_minus_ml" else "disk-ML"
         label = units.difference_rpsi4_ylabel if is_psi4 else units.difference_strain_ylabel
     else:
@@ -491,10 +491,7 @@ def main(argv=None, kinds=None):
             for sim in sims:
                 if sim is reference or not same_loaded_radius(sim, reference):
                     continue
-                try:
-                    differences[sim.config.name] = read_difference(sim, reference)
-                except (OSError, RuntimeError, ValueError) as exc:
-                    print(f"{sim.config.name}: missing difference cache: {exc}")
+                differences[sim.config.name] = read_difference(sim, reference)
         # Prepare, plot and save. waveform() above contains every data branch.
         for kind in modal_kinds:
             for mode in modes:
@@ -502,14 +499,14 @@ def main(argv=None, kinds=None):
                 if fig is not None:
                     label_sim = sims[0] if kind in ("psi4", "strain") else reference
                     savefig(fig, args, OUTPUTS[kind].format(
-                        mode=mode_tag(mode), radius=units.loaded_radius_tag(label_sim, radius)))
+                        mode=mode_tag(mode), radius=units.loaded_radius_tag(label_sim)))
 
         if "strain_panel" in kinds:
             for mode in modes:
                 fig = plot_polarization_panel(sims, mode)
                 if fig is not None:
                     savefig(fig, args, PANEL_OUTPUT.format(
-                        mode=mode_tag(mode), radius=units.loaded_radius_tag(sims[0], radius)))
+                        mode=mode_tag(mode), radius=units.loaded_radius_tag(sims[0])))
     if "strain_observer" in kinds:
         radius = GW_OUTERMOST_PARFILE_INDEX if args.radius_index is None else args.radius_index
         save_observer_groups(args, radius)
@@ -519,18 +516,11 @@ def individual_main(argv=None):
     args = parser("Individual GW radius and mode comparisons.").parse_args(argv)
     setup(args)
     for config in all_sim_configs(args.sims):
-        try:
-            run = GWRun(config)
-        except (OSError, ValueError) as exc:
-            print(f"{config.name}: skipping GW plots; {exc}")
-            continue
+        run = GWRun(config)
         radii = {}
         for radius in dict.fromkeys((*GW_COMPARISON_PARFILE_INDICES, GW_OUTERMOST_PARFILE_INDEX)):
-            try:
-                radii[radius] = run.at_radius(radius)
-            except (OSError, ValueError) as exc:
-                print(f"{config.name}: skipping radius index {radius}; {exc}")
-        radius_tags = [units.loaded_radius_tag(radii[r], r) for r in GW_COMPARISON_PARFILE_INDICES if r in radii]
+            radii[radius] = run.at_radius(radius)
+        radius_tags = [units.loaded_radius_tag(radii[r]) for r in GW_COMPARISON_PARFILE_INDICES if r in radii]
         for multimode in (False, True):
             for kind in ("psi4", "strain"):
                 fig = plot_individual(radii, kind, multimode)
@@ -538,7 +528,7 @@ def individual_main(argv=None):
                     continue
                 if multimode:
                     modes = "_".join(mode_tag(mode) for mode in GW_MULTIMODE_PLOT_MODES)
-                    filename = f"gw_{kind}_modes_{config.name}_{modes}_{units.loaded_radius_tag(radii[GW_OUTERMOST_PARFILE_INDEX], GW_OUTERMOST_PARFILE_INDEX)}.png"
+                    filename = f"gw_{kind}_modes_{config.name}_{modes}_{units.loaded_radius_tag(radii[GW_OUTERMOST_PARFILE_INDEX])}.png"
                 else:
                     prefix = "rpsi4" if kind == "psi4" else "rhphc"
                     filename = f"{prefix}_{config.name}_{mode_tag(PSI4_MODE)}_{'-'.join(radius_tags)}.png"

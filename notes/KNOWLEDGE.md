@@ -25,6 +25,12 @@ modules and forwarding commands have been removed. The runners call the
 owning files directly. Dated sections below can describe earlier layouts
 and retain historical numbers.
 
+Current code supports the current cache format and call signatures. Missing
+cache metadata or invalid mass/radius scales raise errors. The direct and
+batch commands use identical options and one output per figure:
+`gw/detectability/radius_<index>` and `radius_<index>_conditional`. Compactness
+exports use `wip/compactness/`; no historical-name copies are written.
+
 ## Face-On Strain at 100 Mpc (2026-09-14)
 
 - `./run_wip.py strain_observer` makes separate A/B three-row figures,

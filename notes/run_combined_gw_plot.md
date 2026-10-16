@@ -20,7 +20,7 @@ python gw_detectability.py --radius-index 7
 ```
 
 Each radius has its own output names, so comparisons do not overwrite one
-another or the existing paper export:
+another:
 
 ```text
 figures/gw/detectability/radius_6.png
@@ -143,7 +143,8 @@ python gw_detectability.py --plots strain distance
 | `extrapolation` | Combined figure with the optional fitted continuation beyond the measured end; requires scalar data |
 
 The direct command defaults to `combined`. `run_wip.py detectability` requests
-`BATCH_PLOTS`, preserving the existing batch exports and labelled extrapolation.
+`BATCH_PLOTS`, including the labelled extrapolation. Both entry points use
+the same radius-specific filenames; there is no batch-only naming behavior.
 A selected measured diagnostic does not run that fit or load
 unrequested radius/direction comparisons. Only `combined` and `distance` need
 the full measured mass-versus-distance scan. Illustrative strain sources still

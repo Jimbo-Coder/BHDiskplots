@@ -238,19 +238,14 @@ def read_strain_cache(workdir: Path, psi4_input: Path) -> StrainResult:
     if not (workdir / "rhphc.dat").is_file():
         raise FileNotFoundError(f"Missing strain cache {workdir}. Run generate_gw.py before plotting.")
     manifest_path = workdir / "strain_cache.json"
-    backend = "fortran"
-    metadata = {}
-    if manifest_path.is_file():
-        try:
-            metadata = json.loads(manifest_path.read_text())
-            backend = str(metadata.get("backend", backend))
-        except (AttributeError, OSError, ValueError, TypeError):
-            backend = "unknown"
-            metadata = {}
+    metadata = json.loads(manifest_path.read_text())
+    if metadata["format_version"] != 1 or metadata["backend"] not in ("python", "fortran"):
+        raise ValueError(f"{manifest_path}: unsupported cache format/backend; run generate_gw.py")
+    backend = metadata["backend"]
     return StrainResult(
         workdir=workdir,
         psi4_input=psi4_input,
-        rhphc=_load_optional(workdir / "rhphc.dat"),
+        rhphc=np.loadtxt(workdir / "rhphc.dat", comments="#", ndmin=2),
         rhphcdot=_load_optional(workdir / "rhphcdot.dat"),
         omega22=_load_optional(workdir / "omega22.dat"),
         ejv_gw=_load_optional(workdir / "ejv_GW.dat"),
@@ -965,18 +960,13 @@ def read_difference(case, reference):
     return read_strain_cache(path, case.psi4.path)
 
 
-def load_gw_sims(names=None, psi4_parfile_index=None, skip_missing=True):
+def load_gw_sims(names=None, psi4_parfile_index=None):
     from helpers.style import apply_styles
 
     waveforms = []
     for config in all_sim_configs(names):
         index = config.psi4_parfile_index if psi4_parfile_index is None else psi4_parfile_index
-        try:
-            waveforms.append(GWRun(config).at_radius(index))
-        except (OSError, ValueError, IndexError) as exc:
-            if not skip_missing:
-                raise
-            print(f"{config.name}: skipping; {exc}")
+        waveforms.append(GWRun(config).at_radius(index))
     return apply_styles(waveforms)
 
 
@@ -1020,16 +1010,13 @@ def subtract_waveforms(case_t, case_values, reference_t, reference_values):
 
 
 def loaded_areal_radius(sim):
-    psi4 = getattr(sim, "psi4", None)
-    if psi4 is None:
-        return None
-    radius = np.nanmedian(np.asarray(psi4.r_areal, dtype=float))
-    return float(radius) if np.isfinite(radius) else None
+    radius = float(np.nanmedian(np.asarray(sim.psi4.r_areal, dtype=float)))
+    if not np.isfinite(radius) or radius <= 0:
+        raise ValueError(f"{sim.config.name}: invalid stored areal radius {radius}")
+    return radius
 
 
 def same_loaded_radius(sim, reference, rtol=5.0e-3, atol=1.0):
     radius = loaded_areal_radius(sim)
     reference_radius = loaded_areal_radius(reference)
-    if radius is None or reference_radius is None:
-        return True
     return bool(np.isclose(radius, reference_radius, rtol=rtol, atol=atol))

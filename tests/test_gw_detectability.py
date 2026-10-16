@@ -384,13 +384,16 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                 plt.rc_context({"text.usetex":False,"font.family":"serif"}), \
                 mock.patch.object(analysis,"savefig",
                                   side_effect=lambda fig,args,name: fig.savefig(Path(args.outdir)/name)) as save:
-            analysis.plot_combined(result, SimpleNamespace(outdir=Path(tmp),no_save=False))
+            analysis.plot_combined(result, SimpleNamespace(outdir=Path(tmp),no_save=False),
+                                   filename="gw/detectability/radius_8.png")
             fig=save.call_args.args[0]
             try:
                 self.assertAlmostEqual(fig.get_figwidth(),7.)
                 self.assertEqual(len(fig.legends),2)
                 self.assertEqual([row['label'] for row in analysis.example_source_info(result)],list('abcd'))
-                self.assertTrue((Path(tmp)/'gw/gw_detectability_combined_caption.tex').is_file())
+                self.assertTrue((Path(tmp)/'gw/detectability/radius_8_caption.tex').is_file())
+                self.assertEqual([p.relative_to(tmp).as_posix() for p in Path(tmp).rglob("*.png")],
+                                 ["gw/detectability/radius_8.png"])
                 fig.canvas.draw()
             finally:
                 plt.close(fig)
@@ -788,7 +791,7 @@ class DiagnosticSelectionTests(unittest.TestCase):
                 analysis.main(["--plots", *requested, "--no-save", "--sims", "A1"])
                 analyze.assert_called_once_with(
                     ["A1"], radius_index=analysis.OUTER_RADIUS_INDEX,
-                    cache_root=config.GW_WORK_ROOT, strict=True,
+                    cache_root=config.GW_WORK_ROOT,
                     compare_radius="radius" in requested,
                     compare_direction="averaging" in requested,
                     compute_horizons=bool(set(requested) & {"combined", "distance"}),
@@ -801,7 +804,7 @@ class DiagnosticSelectionTests(unittest.TestCase):
                                  int("strain" in requested or "reference" in requested))
                 draw["_plot_extrapolation"].assert_not_called()
 
-    def test_batch_retains_the_existing_outputs(self):
+    def test_runner_uses_the_same_explicit_plot_selection(self):
         result = SimpleNamespace(sources={}, inner={"A1": object()})
         with mock.patch.object(analysis, "analyze", return_value=result) as analyze, \
                 mock.patch.object(analysis, "plot_combined") as combined, \
@@ -811,14 +814,14 @@ class DiagnosticSelectionTests(unittest.TestCase):
                     _plot_radius_comparison=mock.DEFAULT, _plot_method_comparison=mock.DEFAULT,
                     _plot_characteristic_strain=mock.DEFAULT, _plot_horizon=mock.DEFAULT,
                     _plot_extrapolation=mock.DEFAULT) as draw:
-            analysis.main(["--no-save"], batch=True)
+            analysis.main(["--no-save", "--plots", *analysis.BATCH_PLOTS])
         analyze.assert_called_once_with(list(analysis.SIM_NAMES),
                                         radius_index=analysis.OUTER_RADIUS_INDEX,
-                                        cache_root=config.GW_WORK_ROOT, strict=True,
+                                        cache_root=config.GW_WORK_ROOT,
                                         compare_radius=True, compare_direction=True,
                                         compute_horizons=True, include_reference=True)
         combined.assert_called_once_with(result, mock.ANY,
-                                         filename=analysis.OUTPUT_FILENAME_COMBINED,
+                                         filename=f"gw/detectability/radius_{analysis.OUTER_RADIUS_INDEX}.png",
                                          example_labels=analysis.EXAMPLE_LABEL_STYLE)
         for name in ("_plot_radius_comparison", "_plot_method_comparison",
                      "_plot_characteristic_strain", "_plot_extrapolation"):
