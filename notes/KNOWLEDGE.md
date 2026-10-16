@@ -14,8 +14,8 @@ window/cut and detector choices still require scientific review.
 | --- | --- |
 | Measured combined strain/distance figure | `gw_detectability.py`; [run/edit guide](run_combined_gw_plot.md) |
 | Coherent two-mode mismatch, manual and kuibit | `gw_mismatch.py`; [equations and inputs](gw_mismatch.md) |
-| All waveform time-history views | `wip_plots/gw_waveforms.py` |
-| Detectability diagnostics and continuation fits | Drawings in `gw_detectability.py`; optional equations in `gw_detectability_extras.py` |
+| Waveform, energy and frequency histories | `wip_plots/gw_waveforms.py` |
+| Detectability diagnostics and continuation fits | Equations, workflow and drawing in `gw_detectability.py` |
 | Raw Psi4 reading and waveform-cache generation | `gw.py`, run through `generate_gw.py` |
 
 The first two files contain their calculations and plotting; settings are

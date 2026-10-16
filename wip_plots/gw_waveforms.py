@@ -6,8 +6,10 @@ Read settings first, then waveform() for the actual data preparation, then
 plotting. The batch/individual commands and CLI overrides are at the bottom.
 Use --kinds strain_panel or --kinds strain_observer for other strain views.
 The default draws all views at the configured comparison radii; observer
-strain uses the outer radius. Flux diagnostics live in gw_radiated.py.
+strain and radiated diagnostics use the outer radius. Select --kinds
+gw_radiated for energy, angular momentum and phase-frequency histories.
 """
+import json
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from matplotlib.lines import Line2D
@@ -20,15 +22,18 @@ from config import (
     GW_MULTIMODE_PLOT_MODES, GW_MULTIMODE_LEFT_MODES, GW_MULTIMODE_RIGHT_MODES,
     all_sim_configs,
 )
-from gw import GWRun, load_gw_sims, names_with_massless, same_loaded_radius, subtract_waveforms, read_difference
+from gw import GWRun, names_with_massless, same_loaded_radius, subtract_waveforms, read_difference
 from helpers import gw_units as units
-from gw import MODES as CACHED_MODES, read_strain_cache, strain_cache_dir
-from gw_detectability import FlatLambdaCDM, METERS_PER_M_SUN, METERS_PER_MPC, SECONDS_PER_M_SUN
+from gw import MODES as CACHED_MODES, read_strain_cache, strain_cache_dir, mode_columns, _radiated_diagnostics
+from gw_detectability import (
+    FlatLambdaCDM, METERS_PER_M_SUN, METERS_PER_MPC, SECONDS_PER_M_SUN,
+    MODES as RADIATED_MODES, TRANSIENT_CUTOFF_MBH,
+)
 
 from helpers.plot_common import parser, savefig, save_individual_fig, setup
 from helpers.style import (
     GW_LEGEND_KWARGS, PAPER_TWO_PANEL_HEIGHT, PAPER_THREE_PANEL_HEIGHT, figure_size,
-    COLOR_OPTS, COMPACT_LEGEND_KWARGS, format_paper_axes,
+    COLOR_OPTS, COMPACT_LEGEND_KWARGS, format_paper_axes, apply_styles, ordered_sim_legend,
     format_shared_gw_yaxes, ordered_sim_interpanel_legend, set_symmetric_gw_ticks,
     interpanel_legend, INTERPANEL_LEGEND_INSET, FIGURE_LEGEND_BORDERAXESPAD,
 )
@@ -74,8 +79,13 @@ OBSERVER_LINE_WIDTH = 1.0
 OBSERVER_MARGINS = dict(left=0.20, right=0.975, bottom=0.09, top=0.92, hspace=0.18)
 
 
-# Batch defaults include all three presentations; select only what you need.
-PLOTS = (*OUTPUTS, "strain_panel", "strain_observer")
+# Radiated energy, J_z and phase-frequency diagnostic, using the same caches.
+RADIATED_SMOOTHING_ORBITS = 1.0
+RADIATED_OUTPUT = "wip/gw_radiated.png"
+RADIATED_SUMMARY = "wip/gw_radiated.json"
+
+# Batch defaults include all presentations; select only what you need.
+PLOTS = (*OUTPUTS, "strain_panel", "strain_observer", "gw_radiated")
 
 
 def mode_tag(mode):
@@ -135,6 +145,50 @@ def waveform(sim, mode, kind, reference=None, difference_result=None):
     raise ValueError(f"Unknown waveform plot {kind!r}")
 
 
+# Flux/frequency preparation: the parity-tested FFI accumulation lives in gw.py.
+def measured_rows(result):
+    """Rows up to the last measured Psi4 sample; later rows are zero fill."""
+    values = result.rpsi4_uniform[:, 1:]
+    measured = np.flatnonzero(np.any(values != 0.0, axis=1))
+    return slice(measured[0], measured[-1] + 1)
+
+
+def radiated(sim, modes):
+    """Cumulative E and J_z in code units after the transient cut."""
+    result = sim.strain_result
+    if result.rhphcdot is None or result.rpsi4_uniform is None:
+        raise ValueError(f"{sim.config.name}: regenerate the GW cache with generate_gw.py")
+    rows = measured_rows(result)
+    time = result.time[rows]
+    keep = time >= TRANSIENT_CUTOFF_MBH * sim.config.mlittle
+    if np.count_nonzero(keep) < 8:
+        raise ValueError(f"{sim.config.name}: too few samples after the transient cut")
+    columns = [mode_columns(*mode) for mode in modes]
+    # Legacy (conjugated) h and hdot, exactly as reconstruct_strain passes them.
+    strain = np.stack([result.rhphc[rows, re] + 1j*result.rhphc[rows, im] for re, im in columns], axis=1)
+    strain_dot = np.stack([result.rhphcdot[rows, re] + 1j*result.rhphcdot[rows, im] for re, im in columns], axis=1)
+    dt = float(np.median(np.diff(time)))
+    table = _radiated_diagnostics(time[keep], strain[keep], strain_dot[keep], tuple(modes),
+                                  sim.config.gw_madm, dt)
+    return table[:, 0], table[:, 1], table[:, 2]
+
+
+def frequency_22(sim):
+    """Instantaneous (2,2) Psi4 frequency divided by the orbital frequency."""
+    result = sim.strain_result
+    rows = measured_rows(result)
+    time, psi4 = result.time[rows], result.rpsi4(2, 2)[rows]
+    keep = time >= TRANSIENT_CUTOFF_MBH * sim.config.mlittle
+    time, psi4 = time[keep], psi4[keep]
+    rate = np.abs(np.gradient(np.unwrap(np.angle(psi4)), time))
+    width = max(1, int(round(RADIATED_SMOOTHING_ORBITS * sim.config.Pc / np.median(np.diff(time)))))
+    if width >= rate.size:
+        raise ValueError(f"{sim.config.name}: series shorter than the smoothing window")
+    smooth = np.convolve(rate, np.ones(width) / width, mode="valid")
+    centre = time[width//2: width//2 + smooth.size]
+    return centre, smooth / sim.config.gw_omega_orbital
+
+
 # 2. OBSERVER PROJECTION: cached modal strain -> directional strain at D_L.
 def observer_waveform(case, strain, *, source_mass=OBSERVER_SOURCE_BH_MASS_MSUN,
                       distance=OBSERVER_DISTANCE_MPC, redshift=0.0, modes=OBSERVER_MODES,
@@ -179,6 +233,8 @@ def observer_waveform(case, strain, *, source_mass=OBSERVER_SOURCE_BH_MASS_MSUN,
     return time * mass_z * SECONDS_PER_M_SUN, hp * amplitude, hc * amplitude, peak_time
 
 
+# 3. PLOT AND FORMAT: combined cases, then individual radius/mode comparisons.
+
 def plot_observer_group(cases, waveforms):
     """One row per case, both polarizations together, with shared time limits."""
     fig, axes = plt.subplots(len(cases), 1, sharex=True, squeeze=False,
@@ -218,7 +274,40 @@ def plot_observer_group(cases, waveforms):
     return fig
 
 
-# 3. PLOT AND FORMAT: combined cases, then individual radius/mode comparisons.
+def plot_radiated(sims):
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=figure_size("double", 7.0))
+    summary = {}
+    for sim in sims:
+        name, disk, bh = sim.config.name, sim.config.disk_rest_mass_code, sim.config.mlittle
+        time, energy, angular = radiated(sim, RADIATED_MODES)
+        _, energy_all, angular_all = radiated(sim, CACHED_MODES)
+        f_time, f_ratio = frequency_22(sim)
+        style = dict(color=sim.color, linestyle=sim.linestyle, label=sim.legend_name)
+        axes[0].plot(units.gw_time_values(time, sim), energy / disk, **style)
+        axes[1].plot(units.gw_time_values(time, sim), angular / (disk * bh), **style)
+        axes[2].plot(units.gw_time_values(f_time, sim), f_ratio, **style)
+        summary[name] = dict(
+            modes=[list(mode) for mode in RADIATED_MODES],
+            energy_over_disk_mass=float(energy[-1] / disk),
+            angular_momentum_over_disk_mass_bh_mass=float(angular[-1] / (disk * bh)),
+            all_modes_energy_over_disk_mass=float(energy_all[-1] / disk),
+            all_modes_angular_momentum_over_disk_mass_bh_mass=float(angular_all[-1] / (disk * bh)),
+            late_f22_over_forb_median=float(np.median(f_ratio[f_ratio.size // 2:])),
+            interval_code=[float(time[0]), float(time[-1])],
+        )
+        print(f"{name}: E_GW/M_disk={energy[-1]/disk:.3g} (all modes {energy_all[-1]/disk:.3g}), "
+              f"late f22/f_orb={summary[name]['late_f22_over_forb_median']:.3f}", flush=True)
+    axes[0].set(ylabel=r"$E_{\rm GW}/M_{\rm disk,0}$")
+    axes[1].set(ylabel=r"$J_{\rm GW}/(M_{\rm disk,0}M_{\rm BH})$")
+    axes[2].set(ylabel=r"$f_{22}/f_{\rm orb}$", xlabel=units.gw_time_xlabel())
+    axes[2].axhline(2.0, color="0.5", linewidth=0.8, linestyle=":")
+    for ax in axes:
+        ax.grid(which="major", alpha=.25)
+    ordered_sim_legend(axes[0], ncols=3, loc="upper left", **COMPACT_LEGEND_KWARGS)
+    units.add_gw_time_secondary_axis(axes[0])
+    fig.subplots_adjust(left=.15, right=.97, bottom=.08, top=.94, hspace=.16)
+    return fig, summary
+
 
 def plot(sims, mode, parfile_index, kind, difference_results=None):
     is_difference = kind not in ("psi4", "strain")
@@ -462,7 +551,7 @@ def save_observer_groups(args, radius):
 
 
 # 4. COMMANDS: read once per radius, prepare, draw, and save.
-def main(argv=None, kinds=None):
+def main(argv=None):
     command = parser(__doc__)
     command.add_argument("--kinds", nargs="+", choices=PLOTS, default=PLOTS,
                          metavar="NAME", help="Choose from %(choices)s; default: all waveform views")
@@ -470,21 +559,26 @@ def main(argv=None, kinds=None):
                          help="One parfile extraction index; default: configured comparison radii")
     args = command.parse_args(argv)
     setup(args)
-    kinds = tuple(args.kinds) if kinds is None else tuple(kinds)
-    if any(kind not in PLOTS for kind in kinds):
-        raise ValueError(f"Choose waveform plots from {PLOTS}")
+    kinds = tuple(args.kinds)
     # Read: each radius uses its own matching waveform and difference caches.
     modes = GW_PLOT_MODES
     names = names_with_massless(args.sims) if any(k in OUTPUTS and k not in ("psi4", "strain") for k in kinds) else args.sims
     modal_kinds = [kind for kind in kinds if kind in OUTPUTS]
-    if modal_kinds or "strain_panel" in kinds:
-        radii = GW_COMPARISON_PARFILE_INDICES if args.radius_index is None else (args.radius_index,)
+    if names is None and not modal_kinds:
+        names = sum(CASE_GROUPS, ())
+    if args.radius_index is not None and (modal_kinds or set(kinds) & {"strain_panel", "gw_radiated"}):
+        radii = (args.radius_index,)
     else:
-        radii = ()
+        radii = GW_COMPARISON_PARFILE_INDICES if modal_kinds or "strain_panel" in kinds else ()
+        if "gw_radiated" in kinds:
+            radii = tuple(dict.fromkeys((*radii, GW_OUTERMOST_PARFILE_INDEX)))
+    cases = all_sim_configs(names) if radii else []
+    # Observer-only runs use the strain caches directly below, without raw Psi4.
+    runs = [GWRun(case) for case in cases]
     for radius in radii:
-        sims = load_gw_sims(names=names, psi4_parfile_index=radius)
+        sims = apply_styles([run.at_radius(radius) for run in runs])
         if not sims:
-            continue
+            command.error("No selected simulations have GW data")
         reference = next((s for s in sims if s.config.name == MASSLESS_SIM_NAME), None)
         differences = {}
         if "strain_from_psi4_minus_ml" in kinds and reference is not None:
@@ -507,6 +601,16 @@ def main(argv=None, kinds=None):
                 if fig is not None:
                     savefig(fig, args, PANEL_OUTPUT.format(
                         mode=mode_tag(mode), radius=units.loaded_radius_tag(sims[0])))
+        if "gw_radiated" in kinds and (args.radius_index is not None or radius == GW_OUTERMOST_PARFILE_INDEX):
+            disk_sims = [sim for sim in sims if sim.config.name != MASSLESS_SIM_NAME]
+            if not disk_sims:
+                command.error("The radiated diagnostic requires a disk simulation")
+            fig, summary = plot_radiated(disk_sims)
+            savefig(fig, args, RADIATED_OUTPUT)
+            if not args.no_save:
+                path = args.outdir / RADIATED_SUMMARY
+                path.write_text(json.dumps(summary, indent=2) + "\n")
+                print(f"saved {path}")
     if "strain_observer" in kinds:
         radius = GW_OUTERMOST_PARFILE_INDEX if args.radius_index is None else args.radius_index
         save_observer_groups(args, radius)

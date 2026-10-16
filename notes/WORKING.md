@@ -4,6 +4,16 @@ Last updated: 2026-10-16
 
 ## Current Work
 
+- Oct16 final consolidation: `gw_detectability.py` owns measured analysis,
+  validation sweeps, optional continuation equations and all related drawings.
+  The circular extras import and duplicated case-reader loop are gone.
+  `wip_plots/gw_waveforms.py` also owns radiated E/J and phase-frequency
+  diagnostics. Readers are opened once per case and shared across radii/views;
+  the WIP runner uses the same --kinds command as direct invocation. The two
+  superseded modules were removed. README is the current run/edit map; dated
+  entries below retain previous implementations. Numerical/cache conventions
+  are preserved. Evidence: run_logs/gw_final_20261016/.
+
 - Oct16 current-contract cleanup: removed the detectability batch switch,
   historical export copies (GW and compactness), target-attribute defaults,
   silent cache-metadata recovery, and argument-rewriting/alias machinery in

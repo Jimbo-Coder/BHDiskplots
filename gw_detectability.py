@@ -4,11 +4,14 @@
 Run: python gw_detectability.py --radius-index 6
 Checks: python gw_detectability.py --plots radius averaging --sims A1 A3
 
+Main-figure reading path: section 1 settings -> section 3 analyze() ->
+section 4 plot_combined(). Section 2 contains the equations used by analyze().
+The labelled duration-model block is needed only for continuation diagnostics.
 Edit the scientific choices in section 1 and the appearance in section 4.
 Read this file in order: settings and cache readers; the spectral/
 detector calculation; the complete workflow; then plotting and formatting.
 The command-line options are at the bottom. Optional continuation fits
-and validation sweeps live in gw_detectability_extras.py.
+and validation sweeps are labelled below the measured calculation.
 
 The default uses measured rPsi4, with no FFI or synthetic continuation.
 Units: tau=t/M_BH, q=r*h/M_BH, p=M_BH*r*Psi4=d^2q/dtau^2.
@@ -26,7 +29,7 @@ from math import factorial
 from typing import Mapping
 
 import numpy as np
-from gw import MODES as CACHED_MODES, mode_columns, strain_cache_dir
+from gw import MODES as CACHED_MODES, mode_columns, strain_cache_dir, read_strain_cache
 
 
 # 1. SETTINGS AND INPUTS
@@ -393,7 +396,6 @@ def direct_psi4_spectrum(
             raise ValueError("A rejected temporal trial cannot extend Psi4")
         if (2, 2) not in modes:
             raise ValueError("The continuation requires measured mode (2,2)")
-        from gw_detectability_extras import continued_psi4_mode
         extended_time, extended_psi4 = continued_psi4_mode(
             time/bh_mass, bh_mass*modes[2, 2], continuation)
         # All other modes keep exactly their measured Tukey termination. Only
@@ -813,6 +815,376 @@ def horizon_curves(spectra, curves, cosmology):
     return masses, result
 
 
+# Optional duration model and validation sweeps. These definitions are used
+# only by requested diagnostics; the measured calculation above needs none
+# of the scalar data or continuation fits below.
+VALIDATION_RADIUS_INDICES = (FIRST_RADIUS_INDEX, 7, OUTER_RADIUS_INDEX)
+VALIDATION_TAPER_ALPHAS = (0.02, TAPER_ALPHA, 0.10)
+VALIDATION_TRANSIENT_CUTOFFS_MBH = (500.0, TRANSIENT_CUTOFF_MBH, 1500.0)
+VALIDATION_COARSE_ANGULAR_GRID = (12, 24)
+TAIL_MASS_SOURCE = "horizon_flux"  # Or "outside_mass" for the original Wessel-like fit.
+TAIL_FIT_START_FRACTION = 0.60  # Last 40% of retained measured strain.
+TAIL_WINDOW_FRACTIONS = (0.40, 0.50, 0.60, 0.70, 0.80)  # Report sensitivity; never pick the best fit.
+TAIL_HOLDOUT_FRACTION = 0.25  # Withhold last quarter of that interval, then refit.
+TAIL_REMAINING_MASS_FRACTION = 0.10  # Wessel: 90% of initial disk mass accreted.
+TAIL_FIT_LIMITS = dict(mass=0.01, amplitude=0.25, phase=0.5, holdout=0.5)
+TAIL_MAX_SAMPLES = 2_000_000  # Abort, never shorten a tail silently.
+TAIL_JOIN_ORBITS, TAIL_TAPER_ORBITS = 1.0, 3.0
+TAIL_REVIEW_CASES = ("A1",)  # Empty tuple disables conditional examples.
+
+
+def orbital_spectrum(case, spectrum):
+    orbital_frequency = float(case.gw_omega_orbital) * case.mlittle / (2 * np.pi)
+    if not np.isfinite(orbital_frequency) or orbital_frequency <= 0:
+        raise ValueError(f"{case.name}: positive orbital frequency is required")
+    return spectrum.frequency / orbital_frequency, characteristic_strain(spectrum.frequency, spectrum.strain_ft)
+
+
+def interpolated_spectral_ratio(reference_x, reference_y, test_x, test_y):
+    lower = max(float(np.min(reference_x)), float(np.min(test_x)))
+    upper = min(float(np.max(reference_x)), float(np.max(test_x)))
+    keep = ((reference_x >= lower) & (reference_x <= upper)
+            & np.isfinite(reference_y) & (reference_y > 0))
+    x = reference_x[keep]
+    return x, np.interp(x, test_x, test_y) / reference_y[keep]
+
+
+def _significant_ratio(label, baseline_x, baseline_y, x, y):
+    x, ratio = interpolated_spectral_ratio(baseline_x, baseline_y, x, y)
+    significant = (np.isfinite(ratio)
+                   & (np.interp(x, baseline_x, baseline_y) >= 1e-3 * np.max(baseline_y)))
+    if np.any(significant):
+        change = abs(ratio[significant] - 1)
+        print(f"{label}: median fractional change={np.median(change):.3g}, "
+              f"95th percentile={np.percentile(change, 95):.3g}", flush=True)
+    return x[significant], ratio[significant]
+
+
+def validation_data(sim_name):
+    """Return radius, taper and transient comparisons as arrays ready to draw."""
+    case = config.all_sim_configs([sim_name])[0]
+    time, modes = read_rpsi4_modes(case, OUTER_RADIUS_INDEX)
+    baseline, _ = spectrum_for_case(case, time, modes)
+    baseline_x, baseline_y = orbital_spectrum(case, baseline)
+    radial, tapers, cutoffs = [], [], []
+    for index in dict.fromkeys(VALIDATION_RADIUS_INDICES):
+        try:
+            if index == OUTER_RADIUS_INDEX:
+                spectrum = baseline
+            else:
+                other_time, other_modes = read_rpsi4_modes(case, index)
+                spectrum, _ = spectrum_for_case(case, other_time, other_modes)
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"{sim_name}: radius index {index} unavailable: {exc}", flush=True)
+            continue
+        x, y = orbital_spectrum(case, spectrum)
+        radial.append((index, x, y))
+        if index != OUTER_RADIUS_INDEX:
+            _significant_ratio(f"{sim_name} radius index {index}/outer", baseline_x, baseline_y, x, y)
+
+    for alpha in dict.fromkeys(VALIDATION_TAPER_ALPHAS):
+        spectrum = baseline if alpha == TAPER_ALPHA else spectrum_for_case(case, time, modes, taper_alpha=alpha)[0]
+        x, ratio = _significant_ratio(
+            f"{sim_name} Tukey alpha={alpha:g}/baseline", baseline_x, baseline_y, *orbital_spectrum(case, spectrum))
+        tapers.append((alpha, x, ratio))
+    for cutoff in dict.fromkeys(VALIDATION_TRANSIENT_CUTOFFS_MBH):
+        spectrum = baseline if cutoff == TRANSIENT_CUTOFF_MBH else spectrum_for_case(
+            case, time, modes, transient_cutoff_mbh=cutoff)[0]
+        x, ratio = _significant_ratio(
+            f"{sim_name} transient={cutoff:g} M_BH/baseline", baseline_x, baseline_y, *orbital_spectrum(case, spectrum))
+        cutoffs.append((cutoff, x, ratio))
+    coarse, _ = spectrum_for_case(case, time, modes,
+                                 theta_nodes=VALIDATION_COARSE_ANGULAR_GRID[0],
+                                 phi_nodes=VALIDATION_COARSE_ANGULAR_GRID[1])
+    _significant_ratio(f"{sim_name} coarse/baseline angular grid", baseline_x, baseline_y, *orbital_spectrum(case, coarse))
+    return radial, tapers, cutoffs
+
+
+@dataclass
+class WesselFit:
+    start: float
+    end: float
+    gamma: float
+    omega: float
+    amplitude: float
+    phase: float
+    mass_end: float
+    errors: dict
+
+    def strain(self, time):
+        return self.amplitude * np.exp((-self.gamma + 1j*self.omega)
+                                      * (np.asarray(time) - self.end) + 1j*self.phase)
+
+    def mass(self, time):
+        return self.mass_end * np.exp(-self.gamma * (np.asarray(time) - self.end))
+
+
+@dataclass
+class WesselTrial:
+    time: np.ndarray
+    strain: np.ndarray
+    mass_time: np.ndarray
+    mass: np.ndarray
+    initial_mass: float
+    fit: WesselFit
+    holdout_fit: WesselFit
+    holdout_error: float
+    issues: list[str]
+    extended_time: np.ndarray | None = None
+    extended_strain: np.ndarray | None = None
+    finite_spectrum: DimensionlessSpectrum | None = None
+    extended_spectrum: DimensionlessSpectrum | None = None
+    conditional: bool = False
+    density_time: np.ndarray | None = None
+    density_modes: np.ndarray | None = None
+    window_fits: tuple[WesselFit, ...] = ()
+    mass_source: str = "outside_mass"
+    orbital_period: float = 0.0
+
+
+def fit_wessel_mode(time, strain, mass_time, mass, start, end):
+    """Eq. (10): mass -> gamma, unwrapped phase -> omega, amplitude -> B.
+
+    All times are in M_BH, strain is r*h_22/M_BH. Fit the mass itself in
+    linear space (not log mass). Uniformly sampled waveform and scalar data
+    have equal sample weights. No absolute value or positivity bound on gamma
+    is imposed: a growing mass history must remain a failed decay hypothesis.
+    """
+    from scipy.optimize import curve_fit
+
+    wave = (time >= start) & (time <= end)
+    disk = (mass_time >= start) & (mass_time <= end)
+    if wave.sum() < 16 or disk.sum() < 16 or end <= start:
+        raise ValueError("Need at least 16 waveform and mass samples in the fit interval")
+    h, x = strain[wave], time[wave] - end
+    y, xm = mass[disk], (mass_time[disk] - end) / (end - start)
+    if np.any(y <= 0) or np.any(np.abs(h) == 0):
+        raise ValueError("Mass and complex-mode amplitude must be positive for this fit")
+    scale = np.mean(y)
+    guess = np.polyfit(xm, np.log(y / scale), 1)
+    pars, _ = curve_fit(lambda u, b, g: b * np.exp(-g*u), xm, y/scale,
+                        p0=(np.exp(guess[1]), -guess[0]), maxfev=10000)
+    mass_end, gamma = float(pars[0]*scale), float(pars[1]/(end-start))
+    phase = np.unwrap(np.angle(h))
+    omega, phase_end = np.polyfit(x, phase, 1)
+    envelope = np.exp(-gamma*x)
+    amplitude = float(np.dot(envelope, np.abs(h)) / np.dot(envelope, envelope))
+    rms = lambda a: float(np.sqrt(np.mean(np.abs(a)**2)))
+    errors = dict(mass=rms(y-mass_end*np.exp(-gamma*(mass_time[disk]-end)))/rms(y),
+                  amplitude=rms(np.abs(h)-amplitude*envelope)/rms(h),
+                  phase=rms(phase-(omega*x+phase_end)))
+    return WesselFit(float(start), float(end), gamma, float(omega), amplitude,
+                     float(phase_end), mass_end, errors)
+
+
+def wessel_trial(time, strain, mass_time, mass, orbital_period, *,
+                 fit_start_fraction=TAIL_FIT_START_FRACTION,
+                 holdout_fraction=TAIL_HOLDOUT_FRACTION,
+                 allow_poor_waveform_fit=False):
+    """Fit Eq. (10), retaining diagnostics even for conditional review models.
+
+    The optional review override waives only waveform-residual limits, not
+    mass-decay or sampling checks. It must not be interpreted as validation.
+
+    Source-coordinate scalar time is compared with retarded GW source time,
+    both t/M_BH with the same simulation origin. This is the usual approximate
+    source-time identification, not a gauge-invariant time mapping.
+    """
+    time, strain = np.asarray(time, float), np.asarray(strain, complex)
+    mass_time, mass = np.asarray(mass_time, float), np.asarray(mass, float)
+    if not (0 <= fit_start_fraction < 1 and 0 < holdout_fraction < 1):
+        raise ValueError("Fit and holdout fractions must define nonempty intervals")
+    if not np.isfinite(orbital_period) or orbital_period <= 0:
+        raise ValueError("Orbital period must be finite and positive")
+    for t, y in ((time, strain), (mass_time, mass)):
+        if t.ndim != 1 or t.size < 32 or y.shape != t.shape or not np.all(np.isfinite(y)) \
+                or not np.all(np.isfinite(t)) or np.any(np.diff(t) <= 0):
+            raise ValueError("Need finite, increasing waveform and mass series")
+    if mass[0] <= 0 or time[0] < mass_time[0] or time[-1] > mass_time[-1]:
+        raise ValueError("Positive initial disk mass and scalar coverage of the waveform are required")
+    if not np.allclose(np.diff(time), np.median(np.diff(time)), rtol=1e-5):
+        raise ValueError("Use the uniformly sampled strain cache")
+    start = time[0] + fit_start_fraction*np.ptp(time)
+    holdout_start = time[-1] - holdout_fraction*(time[-1]-start)
+    fit = fit_wessel_mode(time, strain, mass_time, mass, start, time[-1])
+    held_fit = fit_wessel_mode(time, strain, mass_time, mass, start, holdout_start)
+    held = time > holdout_start
+    held_error = float(np.linalg.norm(strain[held]-held_fit.strain(time[held]))
+                       / np.linalg.norm(strain[held]))
+    issues = []
+    if fit.gamma <= 0:
+        issues.append("disk mass does not decay")
+    elif fit.gamma*(fit.end-fit.start) <= 3*fit.errors["mass"]:
+        issues.append("mass decay unresolved above fit residuals")
+    if fit.gamma*orbital_period/(2*np.pi) >= 0.1:
+        issues.append("decay is not slow compared with orbital motion")
+    if abs(fit.omega)*(fit.end-fit.start)/(2*np.pi) < 3:
+        issues.append("fewer than three fitted wave cycles")
+    if not np.isfinite(fit.errors["mass"]) or fit.errors["mass"] > TAIL_FIT_LIMITS["mass"]:
+        issues.append("mass residual exceeds trial limit")
+    blocking = bool(issues)
+    for key, error in {**fit.errors, "holdout": held_error}.items():
+        if key == "mass":
+            continue
+        if not np.isfinite(error) or error > TAIL_FIT_LIMITS[key]:
+            issues.append(f"{key} residual exceeds trial limit")
+            blocking |= not np.isfinite(error)
+    trial = WesselTrial(time, strain, mass_time, mass, float(mass[0]), fit,
+                         held_fit, held_error, issues, orbital_period=orbital_period)
+    if blocking or (issues and not allow_poor_waveform_fit):
+        return trial
+
+    # The paper does not specify a join
+    # function: quintic blending over the last orbit is our explicit choice.
+    stop = fit.end + np.log(fit.mass_end/(TAIL_REMAINING_MASS_FRACTION*mass[0]))/fit.gamma
+    join_width, taper_width = TAIL_JOIN_ORBITS*orbital_period, TAIL_TAPER_ORBITS*orbital_period
+    dt = float(np.median(np.diff(time)))
+    count = int(np.ceil((stop+taper_width-time[0])/dt)) + 1
+    if stop <= fit.end or fit.end-join_width < fit.start:
+        issues.append("no future mass threshold or insufficient join interval")
+        return trial
+    if count > TAIL_MAX_SAMPLES:
+        issues.append("tail exceeds sample budget; no truncated substitute")
+        return trial
+    extended_time = time[0] + dt*np.arange(count)
+    extended = fit.strain(extended_time)
+    blend = np.clip((time-(fit.end-join_width))/join_width, 0, 1)
+    blend = blend**3*(10-15*blend+6*blend**2)
+    extended[:time.size] = (1-blend)*strain + blend*extended[:time.size]
+    taper = np.clip((extended_time-stop)/taper_width, 0, 1)
+    extended *= 1-taper**3*(10-15*taper+6*taper**2)
+    trial.extended_time, trial.extended_strain = extended_time, extended
+    # Identical FFI input, FFT grid and measured-duration frequency floor.
+    # Only the termination differs. Keep the onset taper's physical width
+    # fixed; a full-length Tukey would re-window the measured signal.
+    off_window = tukey_window(time.size, TAPER_ALPHA)
+    on_window = np.ones(count)
+    half = time.size//2
+    on_window[:half] = off_window[:half]
+    nfft = int(np.ceil(ZERO_PAD_FACTOR*count))
+    floor = LOW_FREQUENCY_CYCLES/np.ptp(time)
+    trial.finite_spectrum = _single_22_spectrum(strain*off_window, dt, nfft, floor)
+    trial.extended_spectrum = _single_22_spectrum(extended*on_window, dt, nfft, floor)
+    trial.conditional = bool(issues)
+    return trial
+
+
+def _single_22_spectrum(strain, dt, nfft, frequency_floor):
+    """Same polarization/orientation statistic as production, for one mode.
+
+    For a single mode the angular factor separates exactly, avoiding a large
+    direction-by-frequency array for long tails. No extra 1/f^2: this is h.
+    """
+    fft = np.fft.fft(strain, n=nfft)*dt
+    freq = np.fft.fftfreq(nfft, dt)
+    pos = np.flatnonzero((freq > 0) & (freq >= frequency_floor))
+    theta, phi, weights = _source_directions(THETA_NODES, PHI_NODES)
+    harmonics = np.abs(_harmonic_matrix(((2, 2),), theta, phi)[:, 0])
+    if SOURCE_AVERAGING == "mean":
+        factor = weights @ harmonics
+    elif SOURCE_AVERAGING == "rms":
+        factor = np.sqrt(weights @ harmonics**2)
+    else:
+        raise ValueError(f"Unknown source averaging {SOURCE_AVERAGING}")
+    amplitude = 0.5*factor*np.sqrt(np.abs(fft[pos])**2+np.abs(fft[(-pos)%nfft])**2)
+    return DimensionlessSpectrum(freq[pos], amplitude, f"source-direction {SOURCE_AVERAGING}")
+
+
+def disk_mass_for_tail(scalar, source):
+    """Outside-AH mass or a flux-only remaining-rest-mass estimate.
+
+    bhns.don columns 2/3 are total/inside-AH M0; column 13 is the recorded
+    positive cumulative inward flux. Subtract its initial offset, not abs().
+    Fitting M0(0)-F(t) to an exponential is equivalent to fitting the implied
+    accumulated flux M0(0)-B exp(-gamma*t), with the initial mass fixed.
+    """
+    scalar = np.asarray(scalar, float)
+    outside = scalar[:, 1]-scalar[:, 2]
+    if source == "outside_mass":
+        mass = outside
+    elif source == "horizon_flux":
+        mass = outside[0]-(scalar[:, 12]-scalar[0, 12])
+    else:
+        raise ValueError("TAIL_MASS_SOURCE must be horizon_flux or outside_mass")
+    if not np.all(np.isfinite(mass)) or np.any(mass <= 0):
+        raise ValueError("Temporal mass history must remain finite and positive")
+    return mass
+
+
+def continued_psi4_mode(time, psi4, trial):
+    """Continue p=M_BH*r*Psi4 using q''=lambda^2*q, q=r*h/M_BH.
+
+    The Wessel strain model supplies lambda=-gamma+i*omega. Analytic
+    differentiation is exact for that MODEL, not validation of the data fit.
+    Blend measured p into model p over the last orbit; taper p at the same
+    mass threshold as the strain trial. These join/window choices are ours.
+    The measured direct-Psi4 baseline never uses this routine.
+    """
+    time, psi4 = np.asarray(time), np.asarray(psi4)
+    dt = float(np.median(np.diff(time)))
+    # Join at the measured Psi4 end; allow for one sample of grid rounding.
+    if trial.extended_time is None or abs(time[-1]-trial.fit.end) > 1.5*dt:
+        raise ValueError("Psi4 and temporal trial endpoints differ by more than one sample")
+    orbital_period = trial.orbital_period
+    if orbital_period <= 0:
+        raise ValueError("A positive orbital period is required for the continuation")
+    stop = trial.fit.end+np.log(trial.fit.mass_end/
+           (TAIL_REMAINING_MASS_FRACTION*trial.initial_mass))/trial.fit.gamma
+    end = stop+TAIL_TAPER_ORBITS*orbital_period
+    count = int(np.ceil((end-time[0])/dt))+1
+    if count > TAIL_MAX_SAMPLES:
+        raise ValueError("Psi4 tail exceeds the sample budget")
+    extended_time = time[0]+dt*np.arange(count)
+    lam = -trial.fit.gamma+1j*trial.fit.omega
+    extended = lam**2*trial.fit.strain(extended_time)
+    blend = np.clip((time-(time[-1]-TAIL_JOIN_ORBITS*orbital_period))/
+                    (TAIL_JOIN_ORBITS*orbital_period), 0, 1)
+    blend = blend**3*(10-15*blend+6*blend**2)
+    extended[:len(time)] = (1-blend)*psi4+blend*extended[:len(time)]
+    taper = np.clip((extended_time-stop)/(TAIL_TAPER_ORBITS*orbital_period), 0, 1)
+    extended *= 1-taper**3*(10-15*taper+6*taper**2)
+    return extended_time, extended
+
+
+def temporal_trial_for_case(case):
+    """Reuse the existing GW cache and restart-aware scalar reader; no raw writes."""
+    from helpers.reader import DiskSim
+
+    label = str(OUTER_RADIUS_INDEX + case.gw_psi4_file_index_offset)
+    cached = read_strain_cache(strain_cache_dir(case, label), case.data_path/"Psi4_rad.mon")
+    if cached.backend != "python" or str(cached.metadata.get("source_label")) != label \
+            or not np.isclose(cached.metadata.get("madm", np.nan), case.gw_madm, rtol=1e-10, atol=0):
+        raise ValueError(f"{case.name}: regenerate inconsistent strain cache")
+    hp, hc = cached.hplus_hcross(2, 2)
+    time = cached.time/case.mlittle
+    # Undo the legacy Fortran conjugation for the natural spin -2 complex mode.
+    strain = (hp-1j*hc)/case.mlittle
+    sim = DiskSim(case)
+    _, scalar, mass_time, _ = sim.loaddata("bhns.don")
+    disk_mass = disk_mass_for_tail(scalar, TAIL_MASS_SOURCE)
+    mass_time = mass_time/case.mlittle
+    if mass_time[0] != 0:
+        raise ValueError(f"{case.name}: initial disk mass at t=0 is unavailable")
+    # Stop at the last measured Psi4 sample; later FFI rows integrate zero fill.
+    measured_end = read_rpsi4_modes(case, OUTER_RADIUS_INDEX, ((2, 2),))[0][-1]/case.mlittle
+    keep = ((time >= TRANSIENT_CUTOFF_MBH) & (time >= mass_time[0]) & (time <= mass_time[-1])
+            & (time <= measured_end + 1e-9))
+    trial = wessel_trial(time[keep], strain[keep], mass_time, disk_mass, case.Pc/case.mlittle,
+                         allow_poor_waveform_fit=case.name in TAIL_REVIEW_CASES)
+    trial.mass_source = TAIL_MASS_SOURCE
+    sim.load_modes()
+    valid = (sim.modes[:, 0].real > 0) & np.all(np.isfinite(sim.modes), axis=1)
+    trial.density_time = sim.modes_t[valid]/case.mlittle
+    trial.density_modes = np.abs(sim.modes[valid, 1:])/np.abs(sim.modes[valid, :1])
+    # C0 is density-cut in the Illinois diagnostic, unlike the full M0 integral.
+    # Use C1/C0 to assess structure, never substitute C0 for disk rest mass.
+    trial.window_fits = tuple(
+        fit_wessel_mode(trial.time, trial.strain, mass_time, disk_mass,
+                        trial.time[0]+fraction*np.ptp(trial.time), trial.time[-1])
+        for fraction in TAIL_WINDOW_FRACTIONS)
+    return trial
+
+
 # ----------------------------------------------------------------------
 # 3. COMPLETE WORKFLOW: cached modes -> spectra -> SNR -> distance reach
 # ----------------------------------------------------------------------
@@ -876,7 +1248,7 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
           f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, no tail", flush=True)
     # Steps 1-4: modes -> windowed FFT -> angular average -> dimensionless strain.
     radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
-    sources, representative = {}, {}
+    sources, representative, inner = {}, {}, {}
     for case in config.all_sim_configs(SIM_NAMES if names is None else names):
         try:
             # Reader: the cached columns already have a common retarded-time grid.
@@ -894,14 +1266,14 @@ def analyze(names=None, *, compare_radius=False, compare_direction=False, comput
             if compare_direction:
                 representative[case.name] = spectrum_for_case(
                     case, time, modes, representative_direction=(np.pi/2.34, 0.))[0]
+            if compare_radius:
+                inner_time, inner_modes = read_rpsi4_modes(case, FIRST_RADIUS_INDEX, cache_root=cache_root)
+                inner_spectrum, inner_info = spectrum_for_case(case, inner_time, inner_modes)
+                inner[case.name] = SourceSpectrum(case, inner_spectrum, inner_info)
         except (OSError, ValueError, KeyError) as exc:
             raise ValueError(f"{case.name}: {exc}") from exc
     if not sources:
         raise ValueError("No valid direct-Psi4 spectra were produced")
-    inner = {}
-    if compare_radius:
-        from gw_detectability_extras import source_spectra
-        inner = source_spectra(names, FIRST_RADIUS_INDEX, cache_root=cache_root)[0]
     spectra = {name: source.spectrum for name, source in sources.items()}
 
     # Step 5: detector noise. Use exactly the same effective ASD for h_n and SNR.
@@ -1288,7 +1660,7 @@ def plot_combined(result, args, *, filename, note=None,
 
 
 # 5. DIAGNOSTIC VIEWS: same spectra/units, different questions.
-# Optional fit equations are isolated in gw_detectability_extras.py.
+# Every view uses the calculations above; there is no alternate analysis module.
 BATCH_PLOTS = ("radius", "averaging", "combined", "reference", "extrapolation")
 AVAILABLE_PLOTS = ("combined", "strain", "distance", "radius", "averaging", "reference", "extrapolation")
 OUTPUT_FILENAME_CHARACTERISTIC_STRAIN = "gw/gw_detectability_characteristic_strain.png"
@@ -1345,16 +1717,15 @@ def _label_noise_curve(ax, frequency, noise, detector):
 
 
 def _plot_radius_comparison(result, args):
-    import gw_detectability_extras as extras
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=figure_size("double", COMPARISON_HEIGHT))
     for name, source in result.sources.items():
         if name not in result.inner:
             continue
-        x, hc = extras.orbital_spectrum(source.config, source.spectrum)
-        inner_x, inner_hc = extras.orbital_spectrum(source.config, result.inner[name].spectrum)
+        x, hc = orbital_spectrum(source.config, source.spectrum)
+        inner_x, inner_hc = orbital_spectrum(source.config, result.inner[name].spectrum)
         keep = _spectrum_plot_mask(x, hc)
         axes[0].plot(x[keep], hc[keep], color=source.color, linestyle=source.linestyle, label=source.legend_name)
-        ratio_x, ratio = extras.interpolated_spectral_ratio(x, hc, inner_x, inner_hc)
+        ratio_x, ratio = interpolated_spectral_ratio(x, hc, inner_x, inner_hc)
         significant = np.isfinite(ratio) & (np.interp(ratio_x, x, hc) >= 1e-3 * np.max(hc))
         axes[1].plot(ratio_x[significant], ratio[significant], color=source.color, linestyle=source.linestyle)
     axes[0].set_ylabel(r"$r h_c/M_{\mathrm{BH}}$ (outer)")
@@ -1369,15 +1740,14 @@ def _plot_radius_comparison(result, args):
 
 
 def _plot_method_comparison(result, args):
-    import gw_detectability_extras as extras
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=figure_size("double", COMPARISON_HEIGHT))
     for name, source in result.sources.items():
-        x, hc = extras.orbital_spectrum(source.config, source.spectrum)
+        x, hc = orbital_spectrum(source.config, source.spectrum)
         keep = _spectrum_plot_mask(x, hc)
         axes[0].plot(x[keep], hc[keep], color=source.color, linestyle=source.linestyle, label=source.legend_name)
         representative = result.representative.get(name)
         if representative is not None:
-            _, rep_hc = extras.orbital_spectrum(source.config, representative)
+            _, rep_hc = orbital_spectrum(source.config, representative)
             ratio = np.divide(hc, rep_hc, out=np.full_like(hc, np.nan), where=rep_hc > 0)
             mask = keep & np.isfinite(ratio)
             axes[1].plot(x[mask], ratio[mask], color=source.color, linestyle=source.linestyle)
@@ -1412,10 +1782,9 @@ def _plot_horizon(result, args, *, filename=OUTPUT_FILENAME_HORIZON, note=None):
 
 def _plot_extrapolation(result, args):
     """Keep the direct-Psi4 baseline; modify only the (2,2) termination."""
-    import gw_detectability_extras as extras
     spectra, reports, extended, conditional = {}, {}, [], []
     for name, source in result.sources.items():
-        trial = extras.temporal_trial_for_case(source.config)
+        trial = temporal_trial_for_case(source.config)
         fit = trial.fit
         spectra[name] = source.spectrum
         reports[name] = dict(mass_source=trial.mass_source, gamma_mbh=fit.gamma,
@@ -1442,7 +1811,7 @@ def _plot_extrapolation(result, args):
         time, modes = retained_psi4_modes(time, modes, source.config.mlittle)
         tau = time/source.config.mlittle
         p = source.config.mlittle*modes[2, 2]
-        te, pe = extras.continued_psi4_mode(tau, p, trial)
+        te, pe = continued_psi4_mode(tau, p, trial)
         psi4_trial = replace(trial, time=tau, strain=p, extended_time=te, extended_strain=pe)
         save_individual_fig(plot_temporal_transition(source.config, psi4_trial, psi4=True),
                             args, name, "gw_temporal_psi4_transition.png")
@@ -1478,8 +1847,7 @@ def _plot_extrapolation(result, args):
 
 
 def plot_validation(sim_name):
-    import gw_detectability_extras as extras
-    radial, tapers, cutoffs = extras.validation_data(sim_name)
+    radial, tapers, cutoffs = validation_data(sim_name)
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=figure_size("double", VALIDATION_HEIGHT))
     for index, x, y in radial:
         endpoint = index in {FIRST_RADIUS_INDEX, OUTER_RADIUS_INDEX}
@@ -1547,11 +1915,10 @@ def plot_temporal_validation(case, trial):
 
 def plot_temporal_transition(case, trial, *, psi4=False):
     """Separate original data, the modified join, and the actual future tail."""
-    import gw_detectability_extras as extras
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=figure_size("double", 5.2))
     period = case.Pc/case.mlittle
     end = trial.time[-1]
-    join_start = max(trial.time[0], end-extras.TAIL_JOIN_ORBITS*period)
+    join_start = max(trial.time[0], end-TAIL_JOIN_ORBITS*period)
     left = max(trial.time[0], join_start-period)
     right = min(trial.extended_time[-1], end+2*period)
     color = COLOR_OPTS[int(case.name[1:])-1]
@@ -1590,14 +1957,13 @@ def plot_temporal_transition(case, trial, *, psi4=False):
 
 def temporal_main(argv=None, *, cases=None):
     """Opt-in trial only; never overwrite any direct-Psi4 production figure."""
-    import gw_detectability_extras as extras
     args = parser("Test Wessel's disk-mass-driven (2,2) strain continuation.").parse_args(argv)
     setup(args)
     cases = config.all_sim_configs(args.sims or SIM_NAMES) if cases is None else cases
     reports = {}
     curves, cosmology = load_detector_curves(), FlatLambdaCDM()
     for case in cases:
-        trial = extras.temporal_trial_for_case(case)
+        trial = temporal_trial_for_case(case)
         fit = trial.fit
         reports[case.name] = dict(fit_interval_mbh=[fit.start, fit.end], gamma_mbh=fit.gamma,
                                  mass_source=trial.mass_source,

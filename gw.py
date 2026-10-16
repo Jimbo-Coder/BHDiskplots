@@ -960,16 +960,6 @@ def read_difference(case, reference):
     return read_strain_cache(path, case.psi4.path)
 
 
-def load_gw_sims(names=None, psi4_parfile_index=None):
-    from helpers.style import apply_styles
-
-    waveforms = []
-    for config in all_sim_configs(names):
-        index = config.psi4_parfile_index if psi4_parfile_index is None else psi4_parfile_index
-        waveforms.append(GWRun(config).at_radius(index))
-    return apply_styles(waveforms)
-
-
 def names_with_massless(names):
     if names is None:
         return None

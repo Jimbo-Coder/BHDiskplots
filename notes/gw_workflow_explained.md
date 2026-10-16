@@ -1354,10 +1354,10 @@ invent an extraction radius from a file index.
 | Characteristic strain and direct SNR norm | [gw_detectability.py](../gw_detectability.py): `characteristic_strain`, `cumulative_snr` |
 | Spectral-power binning and threshold scan | [gw_detectability.py](../gw_detectability.py): `_bin_spectral_power`, `_snr_from_binned_power`, `_threshold_redshift`, `horizon_curves` |
 | Combined finite-spectrum and distance figure | [gw_detectability.py](../gw_detectability.py): `analyze`, `plot_combined`, `_draw_horizon`, `_draw_characteristic_strain` |
-| Additional spectrum/distance diagnostics and conditional trials | [gw_detectability.py](../gw_detectability.py), [gw_detectability_extras.py](../gw_detectability_extras.py) |
+| Additional spectrum/distance diagnostics and conditional trials | [gw_detectability.py](../gw_detectability.py): labelled optional-model and diagnostic sections |
 | Coherent two-signal mismatch, manual and kuibit | [gw_mismatch.py](../gw_mismatch.py): `prepare_pair`, `ManualOverlap`, `kuibit_check`, `analyze` |
 | Face-on time-domain strain | [gw_waveforms.py](../wip_plots/gw_waveforms.py) |
-| Selected-mode emitted energy, angular momentum, and phase frequency | [gw_radiated.py](../wip_plots/gw_radiated.py) |
+| Selected-mode emitted energy, angular momentum, and phase frequency | [gw_waveforms.py](../wip_plots/gw_waveforms.py): `radiated`, `frequency_22`, `plot_radiated` |
 | Analytic normalization checks | [test_gw_detectability.py](../tests/test_gw_detectability.py), [test_gw_ffi.py](../tests/test_gw_ffi.py) |
 
 The highest-value cross-check when reading a formula is to identify three

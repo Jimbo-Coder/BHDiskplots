@@ -5,7 +5,7 @@ import numpy as np
 
 import config
 from gw import MODES, mode_columns
-from wip_plots import gw_radiated
+from wip_plots import gw_waveforms
 
 
 def monochromatic_sim(amplitude=0.3, omega=0.7, zero_rows=5):
@@ -29,8 +29,8 @@ class RadiatedGWTests(unittest.TestCase):
     def test_energy_and_angular_momentum_of_a_monochromatic_22_wave(self):
         amplitude, omega = 0.3, 0.7
         sim, time = monochromatic_sim(amplitude, omega)
-        t, energy, angular = gw_radiated.radiated(sim, ((2, 2), (2, 1)))
-        start = gw_radiated.TRANSIENT_CUTOFF_MBH * sim.config.mlittle
+        t, energy, angular = gw_waveforms.radiated(sim, ((2, 2), (2, 1)))
+        start = gw_waveforms.TRANSIENT_CUTOFF_MBH * sim.config.mlittle
         self.assertGreaterEqual(t[0], start)
         self.assertLess(t[-1], time[-5])  # Zero-fill rows are excluded.
         duration = t[-1] - (t[0] - np.median(np.diff(t)))
@@ -40,7 +40,7 @@ class RadiatedGWTests(unittest.TestCase):
     def test_22_frequency_is_psi4_phase_rate_over_orbital_frequency(self):
         omega = 0.7
         sim, _ = monochromatic_sim(omega=omega)
-        _, ratio = gw_radiated.frequency_22(sim)
+        _, ratio = gw_waveforms.frequency_22(sim)
         np.testing.assert_allclose(ratio, omega / sim.config.gw_omega_orbital, rtol=1e-6)
 
 

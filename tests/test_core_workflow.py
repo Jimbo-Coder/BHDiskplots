@@ -293,31 +293,35 @@ class RestartAndCacheTests(unittest.TestCase):
     def test_combined_time_domain_gw_plots_generate_both_radii(self):
         from wip_plots import gw_waveforms as plots
 
-        for kind, drawing_function in (("strain", "plot"), ("strain_panel", "plot_polarization_panel")):
+        sim = SimpleNamespace(config=all_sim_configs(["A1"])[0], psi4_radius=120.)
+        for kind, drawing in (("strain", "plot"), ("strain_panel", "plot_polarization_panel")):
+            reader = mock.Mock()
+            reader.at_radius.return_value = sim
             with self.subTest(kind=kind), \
                     mock.patch.object(plots, "setup"), \
-                    mock.patch.object(plots, "load_gw_sims", return_value=[
-                        SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.)
-                    ]) as load, \
-                    mock.patch.object(plots, drawing_function, return_value=mock.Mock()), \
+                    mock.patch.object(plots, "GWRun", return_value=reader) as read, \
+                    mock.patch.object(plots, drawing, return_value=mock.Mock()), \
                     mock.patch.object(plots, "savefig") as save:
-                plots.main([], kinds=[kind])
-                self.assertEqual(
-                    [call.kwargs["psi4_parfile_index"] for call in load.call_args_list],
-                    list(GW_COMPARISON_PARFILE_INDICES))
-                self.assertEqual(save.call_count, 8)
+                plots.main(["--sims", "A1", "--kinds", kind])
+            read.assert_called_once()
+            self.assertEqual([call.args[0] for call in reader.at_radius.call_args_list],
+                             list(GW_COMPARISON_PARFILE_INDICES))
+            self.assertEqual(save.call_count, 8)
 
     def test_waveform_views_share_each_radius_read(self):
         from wip_plots import gw_waveforms as plots
 
-        sim = SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.)
+        sim = SimpleNamespace(config=all_sim_configs(["A1"])[0], psi4_radius=120.)
+        reader = mock.Mock()
+        reader.at_radius.return_value = sim
         with mock.patch.object(plots, "setup"), \
-                mock.patch.object(plots, "load_gw_sims", return_value=[sim]) as load, \
+                mock.patch.object(plots, "GWRun", return_value=reader) as read, \
                 mock.patch.object(plots, "plot", return_value=mock.Mock()), \
                 mock.patch.object(plots, "plot_polarization_panel", return_value=mock.Mock()), \
                 mock.patch.object(plots, "savefig") as save:
             plots.main(["--kinds", "strain", "strain_panel", "--sims", "A1"])
-        self.assertEqual(load.call_count, 2)
+        read.assert_called_once()
+        self.assertEqual(reader.at_radius.call_count, 2)
         self.assertEqual(save.call_count, 16)
 
 
@@ -325,7 +329,7 @@ class RestartAndCacheTests(unittest.TestCase):
         from wip_plots import gw_waveforms as plots
 
         with mock.patch.object(plots, "setup"), \
-                mock.patch.object(plots, "load_gw_sims") as raw, \
+                mock.patch.object(plots, "GWRun") as raw, \
                 mock.patch.object(plots, "save_observer_groups") as observer:
             plots.main(["--kinds", "strain_observer", "--radius-index", "6", "--sims", "A1"])
         raw.assert_not_called()
@@ -337,18 +341,44 @@ class RestartAndCacheTests(unittest.TestCase):
     def test_waveform_command_selects_one_family_and_radius_without_ml(self):
         from wip_plots import gw_waveforms as plots
 
-        sim = SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.)
+        readers = []
+        for name in ("A1", "A3"):
+            reader = mock.Mock()
+            reader.at_radius.return_value = SimpleNamespace(
+                config=all_sim_configs([name])[0], psi4_radius=120.)
+            readers.append(reader)
         with mock.patch.object(plots, "setup"), \
-                mock.patch.object(plots, "load_gw_sims", return_value=[sim]) as load, \
+                mock.patch.object(plots, "GWRun", side_effect=readers) as read, \
                 mock.patch.object(plots, "plot", return_value=mock.Mock()) as draw, \
                 mock.patch.object(plots, "savefig") as save, \
                 mock.patch.object(plots, "read_difference") as difference:
             plots.main(["--kinds", "strain", "--radius-index", "6", "--sims", "A1", "A3"])
-        load.assert_called_once_with(names=["A1", "A3"], psi4_parfile_index=6)
+        self.assertEqual([call.args[0].name for call in read.call_args_list], ["A1", "A3"])
+        for reader in readers:
+            reader.at_radius.assert_called_once_with(6)
         self.assertEqual(draw.call_count, 4)
         self.assertTrue(all(call.args[3] == "strain" for call in draw.call_args_list))
         self.assertEqual(save.call_count, 4)
         difference.assert_not_called()
+
+    def test_radiated_and_strain_views_reuse_the_outer_waveform(self):
+        from wip_plots import gw_waveforms as plots
+
+        sim = SimpleNamespace(config=all_sim_configs(["A1"])[0], psi4_radius=170.)
+        reader = mock.Mock()
+        reader.at_radius.return_value = sim
+        with mock.patch.object(plots, "setup"), \
+                mock.patch.object(plots, "GWRun", return_value=reader) as read, \
+                mock.patch.object(plots, "plot", return_value=mock.Mock()), \
+                mock.patch.object(plots, "plot_radiated", return_value=(mock.Mock(), {})) as radiated, \
+                mock.patch.object(plots, "savefig") as save:
+            plots.main(["--kinds", "strain", "gw_radiated", "--radius-index", "8",
+                        "--sims", "A1", "--no-save"])
+        read.assert_called_once()
+        reader.at_radius.assert_called_once_with(8)
+        radiated.assert_called_once_with([sim])
+        self.assertEqual(save.call_count, 5)
+
 
     def test_known_hamiltonian_burst_is_broken_not_interpolated(self):
         from paper_plots.constraints_all import _hamiltonian_for_plot

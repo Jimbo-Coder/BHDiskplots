@@ -9,7 +9,6 @@ import numpy as np
 from scipy.signal.windows import tukey as scipy_tukey
 import config
 import gw_detectability as analysis
-import gw_detectability_extras as extras
 
 from gw_detectability import (
     DimensionlessSpectrum,
@@ -36,27 +35,27 @@ class WesselTailTests(unittest.TestCase):
         data = dict(time=self.time, strain=self.strain, mass_time=self.mass_time,
                     mass=self.mass, orbital_period=40.)
         data.update(overrides)
-        return extras.wessel_trial(**data)
+        return analysis.wessel_trial(**data)
 
     def test_flux_mass_proxy_preserves_sign_and_initial_offset(self):
         data = np.zeros((3, 13))
         data[:, 1], data[:, 2] = [.04, .042, .044], .01
         data[:, 12] = [2., 2.001, 1.999]
-        np.testing.assert_allclose(extras.disk_mass_for_tail(data, "horizon_flux"),
+        np.testing.assert_allclose(analysis.disk_mass_for_tail(data, "horizon_flux"),
                                    [.03, .029, .031])
-        np.testing.assert_allclose(extras.disk_mass_for_tail(data, "outside_mass"),
+        np.testing.assert_allclose(analysis.disk_mass_for_tail(data, "outside_mass"),
                                    [.03, .032, .034])
         data[-1, 12] = 3
         with self.assertRaisesRegex(ValueError, "positive"):
-            extras.disk_mass_for_tail(data, "horizon_flux")
+            analysis.disk_mass_for_tail(data, "horizon_flux")
 
     def test_analytic_strain_tail_second_derivative_is_psi4(self):
         trial = self.trial()
         lam = -.003+.21j
         p = lam**2*self.strain
-        time, extended = extras.continued_psi4_mode(self.time, p, trial)
+        time, extended = analysis.continued_psi4_mode(self.time, p, trial)
         before_taper = time <= trial.fit.end+np.log(trial.fit.mass_end/
-                       (extras.TAIL_REMAINING_MASS_FRACTION*trial.initial_mass))/trial.fit.gamma
+                       (analysis.TAIL_REMAINING_MASS_FRACTION*trial.initial_mass))/trial.fit.gamma
         np.testing.assert_allclose(extended[before_taper],
                                    lam**2*trial.fit.strain(time[before_taper]), rtol=1e-9)
         np.testing.assert_allclose(extended[:len(p)], p, rtol=1e-9)
@@ -74,12 +73,12 @@ class WesselTailTests(unittest.TestCase):
     def test_psi4_join_uses_retained_endpoint_not_dropped_cache_sample(self):
         trial = self.trial()
         p = (-.003+.21j)**2*self.strain
-        time, extended = extras.continued_psi4_mode(self.time[:-1], p[:-1], trial)
+        time, extended = analysis.continued_psi4_mode(self.time[:-1], p[:-1], trial)
         expected = (-trial.fit.gamma+1j*trial.fit.omega)**2*trial.fit.strain(self.time[-2])
         self.assertAlmostEqual(abs(extended[len(p)-2]-expected), 0., places=12)
         self.assertAlmostEqual(time[len(p)-2], self.time[-2], places=10)
         with self.assertRaisesRegex(ValueError, "endpoints"):
-            extras.continued_psi4_mode(self.time[:-3], p[:-3], trial)
+            analysis.continued_psi4_mode(self.time[:-3], p[:-3], trial)
 
     def test_psi4_tail_all_modes_reconstruct_before_averaging(self):
         trial = self.trial()
@@ -88,7 +87,7 @@ class WesselTailTests(unittest.TestCase):
         copies = {k: v.copy() for k, v in modes.items()}
         spectrum, _ = direct_psi4_spectrum(self.time, modes, 1., continuation=trial,
                         transient_cutoff_mbh=0, theta_nodes=4, phi_nodes=8)
-        time, p = extras.continued_psi4_mode(self.time, modes[2, 2], trial)
+        time, p = analysis.continued_psi4_mode(self.time, modes[2, 2], trial)
         window = tukey_window(len(self.time))
         p[:len(self.time)//2] *= window[:len(self.time)//2]
         measured = np.pad(modes[2, 1]*window, (0, len(time)-len(self.time)))
@@ -117,7 +116,7 @@ class WesselTailTests(unittest.TestCase):
         np.testing.assert_allclose(trial.fit.strain(self.time), self.strain, rtol=1e-9)
         np.testing.assert_allclose(trial.extended_strain[:len(self.time)], self.strain, rtol=1e-9)
         self.assertAlmostEqual(abs(trial.extended_strain[-1]), 0., places=12)
-        end_mass = trial.fit.mass(trial.extended_time[-1]-extras.TAIL_TAPER_ORBITS*40)
+        end_mass = trial.fit.mass(trial.extended_time[-1]-analysis.TAIL_TAPER_ORBITS*40)
         self.assertAlmostEqual(end_mass/self.mass[0], .1, delta=1e-4)
         np.testing.assert_array_equal(trial.finite_spectrum.frequency, trial.extended_spectrum.frequency)
         self.assertGreaterEqual(trial.finite_spectrum.frequency[0],
@@ -154,14 +153,13 @@ class WesselTailTests(unittest.TestCase):
 
     def test_temporal_fit_shows_only_data_and_models(self):
         import matplotlib.pyplot as plt
-        import gw_detectability as plots
         trial = self.trial()
         trial.density_time = trial.time
         trial.density_modes = np.ones((trial.time.size, 2))*.01
         trial.conditional = True
         trial.issues.append("amplitude residual exceeds trial limit")
         with plt.rc_context({"text.usetex": False, "font.family": "serif"}):
-            fig = plots.plot_temporal_validation(config.all_sim_configs(["A1"])[0], trial)
+            fig = analysis.plot_temporal_validation(config.all_sim_configs(["A1"])[0], trial)
             try:
                 fig.canvas.draw()
                 self.assertEqual([text.get_text() for text in fig.legends[0].get_texts()],
@@ -179,7 +177,7 @@ class WesselTailTests(unittest.TestCase):
                 plt.close(fig)
 
     def test_budget_does_not_silently_truncate_tail(self):
-        with mock.patch.object(extras, "TAIL_MAX_SAMPLES", 100):
+        with mock.patch.object(analysis, "TAIL_MAX_SAMPLES", 100):
             trial = self.trial()
         self.assertIn("tail exceeds sample budget; no truncated substitute", trial.issues)
         self.assertIsNone(trial.extended_strain)
@@ -187,12 +185,11 @@ class WesselTailTests(unittest.TestCase):
     def test_transition_separates_blending_from_future_extrapolation(self):
         from dataclasses import replace
         import matplotlib.pyplot as plt
-        import gw_detectability as plots
         trial = self.trial()
         before = trial.extended_strain.copy()
         case = replace(config.all_sim_configs(["A1"])[0], Pc=2.)
         with plt.rc_context({"text.usetex": False, "font.family": "serif"}):
-            fig = plots.plot_temporal_transition(case, trial)
+            fig = analysis.plot_temporal_transition(case, trial)
             try:
                 fig.canvas.draw()
                 offset_box = fig.axes[0].yaxis.get_offset_text().get_window_extent()
@@ -203,7 +200,7 @@ class WesselTailTests(unittest.TestCase):
                 for ax in fig.axes:
                     lines = {line.get_label(): line for line in ax.lines}
                     end = trial.time[-1]
-                    join_start = end-extras.TAIL_JOIN_ORBITS*40.
+                    join_start = end-analysis.TAIL_JOIN_ORBITS*40.
                     self.assertEqual(lines["Simulation"].get_xdata()[-1], end)
                     self.assertEqual(lines["Blend"].get_xdata()[0], join_start)
                     self.assertEqual(lines["Blend"].get_xdata()[-1], end)
@@ -221,7 +218,7 @@ class WesselTailTests(unittest.TestCase):
         signal = self.strain*(1+.04*np.sin(.025*self.time))
         trial = self.trial(strain=signal)
         self.assertEqual(trial.issues, [])
-        before = self.time < trial.fit.end-40*extras.TAIL_JOIN_ORBITS
+        before = self.time < trial.fit.end-40*analysis.TAIL_JOIN_ORBITS
         np.testing.assert_array_equal(trial.extended_strain[:self.time.size][before], signal[before])
         np.testing.assert_allclose(trial.extended_strain[self.time.size-1],
                                    trial.fit.strain(self.time[-1]), rtol=1e-10)
@@ -234,7 +231,7 @@ class WesselTailTests(unittest.TestCase):
 
     def test_single_mode_spectrum_matches_general_polarization_average(self):
         nfft, dt = 4096, self.time[1]-self.time[0]
-        spectrum = extras._single_22_spectrum(self.strain, dt, nfft, .01)
+        spectrum = analysis._single_22_spectrum(self.strain, dt, nfft, .01)
         fft = np.fft.fft(self.strain, n=nfft)*dt
         frequency = np.fft.fftfreq(nfft, dt)
         pos = np.flatnonzero((frequency > 0) & (frequency >= .01))
@@ -247,15 +244,14 @@ class WesselTailTests(unittest.TestCase):
     def test_accepted_trial_renders_fit_join_and_comparison(self):
         from dataclasses import replace
         from helpers import style
-        import gw_detectability as plots
         trial = self.trial()
         case = replace(config.all_sim_configs(["A1"])[0], Pc=2.)
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(style, "USE_LATEX_TEXT", False), \
                 mock.patch.dict(style.PAPER_PLOT_STYLE, {"text.usetex": False,
                                                         "font.family": "serif", "font.weight": "normal"}), \
-                mock.patch.object(extras, "temporal_trial_for_case", return_value=trial):
-            report = plots.temporal_main(["--outdir", tmp], cases=[case])
+                mock.patch.object(analysis, "temporal_trial_for_case", return_value=trial):
+            report = analysis.temporal_main(["--outdir", tmp], cases=[case])
             self.assertEqual(report["A1"]["issues"], [])
             self.assertIn("snr", report["A1"])
             self.assertTrue((Path(tmp)/"A1/gw_temporal_fit.png").is_file())
@@ -263,7 +259,7 @@ class WesselTailTests(unittest.TestCase):
             self.assertTrue((Path(tmp)/"A1/gw_temporal_transition.png").is_file())
             self.assertTrue((Path(tmp)/"gw/temporal_trial.json").is_file())
             trial.issues.append("new data rejected")
-            plots.temporal_main(["--outdir", tmp], cases=[case])
+            analysis.temporal_main(["--outdir", tmp], cases=[case])
             self.assertFalse((Path(tmp)/"A1/gw_temporal_on_off.png").exists())
             self.assertFalse((Path(tmp)/"A1/gw_temporal_transition.png").exists())
 
@@ -304,7 +300,6 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         np.testing.assert_allclose(analysis._log_interpolate_curve(curve, f)**2/robson, 2.0, rtol=2e-3)
 
     def test_source_scale_labels_use_latex_scientific_notation(self):
-        import gw_detectability as plots
         self.assertEqual(analysis._scientific_label(1e5), r"10^{5}")
         self.assertEqual(analysis._scientific_label(500), r"5\times 10^{2}")
         self.assertEqual(analysis._scientific_label(.025), r"2.5\times 10^{-2}")
@@ -324,7 +319,6 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
     def test_four_source_scales_share_one_axis_and_one_legend(self):
         import matplotlib.pyplot as plt
-        import gw_detectability as plots
         frequency = np.geomspace(.001, 100, 40)
         source = SimpleNamespace(color="blue", linestyle="-", legend_name="A1")
         targets = [SimpleNamespace(detector=d, mass=m, distance=r or 100.,
@@ -333,8 +327,8 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         result = SimpleNamespace(targets=targets, sources={"A1": source},
                                  noise={"ce": (frequency, np.full(40, 1e-23))})
         with plt.rc_context({"text.usetex": False, "font.family": "serif"}), \
-                mock.patch.object(plots, "savefig") as save:
-            plots._plot_characteristic_strain(result, SimpleNamespace())
+                mock.patch.object(analysis, "savefig") as save:
+            analysis._plot_characteristic_strain(result, SimpleNamespace())
             fig = save.call_args.args[0]
             try:
                 self.assertEqual(len(fig.axes), 1)
@@ -369,7 +363,6 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
     def test_combined_layout_preserves_seven_inch_width_and_writes_source_metadata(self):
         import matplotlib.pyplot as plt
-        import gw_detectability as plots
         frequency = np.geomspace(.001, 1000., 100)
         source = SimpleNamespace(color="blue", linestyle="-", legend_name="A3")
         targets = [SimpleNamespace(detector=d, mass=m, distance=r or 100., redshift=.02,
@@ -401,7 +394,6 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
     def test_curved_detector_label_is_finite_and_preserves_limits(self):
         import matplotlib.pyplot as plt
         from matplotlib.colors import to_rgba
-        import gw_detectability as plots
 
         with plt.rc_context({"text.usetex": False, "font.family": "serif"}):
             fig, ax = plt.subplots()
@@ -410,7 +402,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                 noise = 1e-23 * (frequency + 1 / frequency)
                 ax.loglog(frequency, noise)
                 limits = ax.get_xlim(), ax.get_ylim()
-                plots._label_noise_curve(ax, frequency, noise, "decigo")
+                analysis._label_noise_curve(ax, frequency, noise, "decigo")
                 patch = ax.patches[-1]
                 self.assertTrue(np.all(np.isfinite(patch.get_path().vertices)))
                 self.assertGreater(len(patch.get_path().vertices), 100)
@@ -423,7 +415,6 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
     def test_horizon_redshift_axis_tracks_distance_and_keeps_data_unchanged(self):
         import matplotlib.pyplot as plt
         from helpers.style import PAPER_PLOT_STYLE
-        import gw_detectability as plots
 
         masses = np.geomspace(1., 1e7, 12)
         distances = np.geomspace(.05, 1000., 12)
@@ -432,11 +423,11 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                                  sources={"A1": source})
         cosmology = FlatLambdaCDM()
         style = {**PAPER_PLOT_STYLE, "text.usetex": False, "font.family": "DejaVu Serif"}
-        for filename, note in ((plots.OUTPUT_FILENAME_HORIZON, None),
+        for filename, note in ((analysis.OUTPUT_FILENAME_HORIZON, None),
                                ("gw/test_conditional_horizon.png", "A1: conditional tail")):
             with self.subTest(filename=filename), plt.rc_context(style), \
-                    mock.patch.object(plots, "savefig") as save:
-                plots._plot_horizon(result, SimpleNamespace(), filename=filename, note=note)
+                    mock.patch.object(analysis, "savefig") as save:
+                analysis._plot_horizon(result, SimpleNamespace(), filename=filename, note=note)
                 fig = save.call_args.args[0]
                 try:
                     ax = fig.axes[0]
@@ -533,7 +524,8 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
     def test_cache_reader_drops_trailing_zero_fill(self):
         case = config.all_sim_configs(["A1"])[0]
-        with tempfile.TemporaryDirectory() as tmp, mock.patch("gw.GW_WORK_ROOT", Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("gw.GW_WORK_ROOT", Path(tmp)), \
+                mock.patch.object(analysis, "EXAMPLE_TARGETS", ()):
             directory = Path(tmp) / "A1_psi49"
             directory.mkdir()
             table = np.ones((12, 43))
@@ -562,14 +554,15 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         table[:, 0] = case.mlittle * tau
         table[:, 1], table[:, 2] = rpsi4.real, rpsi4.imag
 
-        with tempfile.TemporaryDirectory() as tmp, mock.patch("gw.GW_WORK_ROOT", Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("gw.GW_WORK_ROOT", Path(tmp)), \
+                mock.patch.object(analysis, "EXAMPLE_TARGETS", ()):
             directory = Path(tmp) / "A1_psi49"
             directory.mkdir()
             np.savetxt(directory / "rpsi4_uniform.dat", table)
             (directory / "strain_cache.json").write_text(json.dumps({
                 "backend": "python", "source_label": "9", "madm": case.gw_madm,
             }))
-            sources, _ = extras.source_spectra(["A1"])
+            sources = analysis.analyze(["A1"], compute_horizons=False).sources
 
         self.assertEqual(tuple(sources), ("A1",))
         source = sources["A1"]

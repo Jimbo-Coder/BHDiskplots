@@ -1,235 +1,171 @@
 # BHDiskplots
 
-Plotting and GW post-processing for the BHDisk simulations on Anvil.
+Plotting and GW post-processing for the BHDisk simulations. Run commands from
+this repository's root in the usual Anvil plotting environment (`condactivate`).
+Locally, run `uv sync` once and prefix Python commands with `uv run`.
 
 ```text
-read-only simulation data (scalars, Psi4, 2D slices)
-  -> scalar/2D readers -> paper_plots/, wip_plots/ -> figures/
-  -> generate_gw.py -> gw_work/   (retarded time, uniform r*Psi4, FFI strain)
-       -> gw_detectability.py, gw_mismatch.py, GW plots -> figures/
+read-only simulation data
+  -> scalar/2D readers -> paper_plots/ and wip_plots/ -> figures/
+  -> generate_gw.py -> gw_work/ (uniform r*Psi4, FFI strain and derivatives)
+       -> gw_detectability.py       spectra, SNR, distance and optional models
+       -> wip_plots/gw_waveforms.py  waveform, polarization, energy/frequency views
+       -> gw_mismatch.py            independent manual and kuibit overlap methods
 ```
 
-## Where things live
+## Run and edit a GW figure
 
-| Path | Contents |
-| --- | --- |
-| `config.py` | Simulation metadata, data roots, shared units, workflow switches |
-| `gw.py` | Psi4 reading, restart merging, FFI strain, waveform caches |
-| `generate_gw.py` | The only entry point that writes the GW cache (`gw_work/`) |
-| `gw_detectability.py` | Measured GW workflow and combined figure: inputs, spectrum, SNR/reach, then Matplotlib |
-| `gw_detectability_extras.py` | Numerical experiments: validation sweeps and conditional continuation fits |
-| `wip_plots/gw_waveforms.py` | All time-domain waveform views: modal histories, ML differences, polarization panels, observer strain, radius/mode comparisons |
-| `gw_mismatch.py` | Two simulation waveforms in one mode: file reader, manual/kuibit comparison, then diagnostic plot |
-| `paper_plots/` | Approved paper figures, registered in `run_paper.py` |
-| `wip_plots/` | Exploratory figures, registered in `run_wip.py` |
-| `helpers/` | Scalar/2D readers, units, shared style |
-| `detector_curves/` | Noise tables and their conventions (see its README) |
-| `data/initial_profiles/` | Small COCAL initial-data inputs |
-| `cache/2d_indices/` | Tracked byte-offset indices for the large 2D ASCII files |
-| `psi4_hlm_ref/` | Fortran FFI regression reference |
-| `notes/` | `WORKING.md` (log, open decisions), `KNOWLEDGE.md` (conventions, numbers), `gw_paper_methods.md`, `human*` notes, `reference/` |
-| `run_logs/` | Ignored nohup logs and PID files |
-
-Scientific choices, output filenames and layout knobs sit at the top of each
-plot's relevant section. GW numerical choices are at the top of the workflow;
-appearance choices sit beside the plotting code. The command-line parsers are
-at the bottom. Shared style and data readers keep the established conventions.
-
-## GW commands
-
-Run these from the repository root in the plotting environment:
+Each family owns its calculations and drawing. Physical choices and output
+names are grouped beside the relevant section; parsers are at the bottom.
+Shared cache readers, units and TeX/Palatino style remain shared.
 
 | Task | Command | Where to edit |
 | --- | --- | --- |
-| Combined strain + distance figure | `python gw_detectability.py --radius-index 6` | `gw_detectability.py`: section 1 for scientific choices, section 4 for appearance |
-| Strain time histories | `python -m wip_plots.gw_waveforms --kinds strain` | `gw_waveforms.py`: preparation, observer projection, Matplotlib, commands |
-| Waveform mismatch, both methods | `python gw_mismatch.py --sims A1 A3` | `gw_mismatch.py`: settings, reader, calculations, analysis, plot |
-| Rebuild caches after a data update | `python generate_gw.py` | `config.py` selects cases/backend; `gw.py` implements the reader and FFI |
+| Combined distance + strain figure | `python gw_detectability.py` | Section 1: physical choices; `analyze`: workflow; section 4: Matplotlib |
+| Different extraction radius | `python gw_detectability.py --radius-index 6` | The same workflow recomputes both panels at that radius |
+| Radius/averaging checks | `python gw_detectability.py --plots radius averaging --sims A1 A3` | Labelled validation calculations and diagnostic drawings in the same file |
+| Modal strain histories | `python -m wip_plots.gw_waveforms --kinds strain --sims A1 A3` | `waveform`, then `plot` |
+| Polarization grid | `python -m wip_plots.gw_waveforms --kinds strain_panel` | `plot_polarization_panel` |
+| Face-on observer strain | `python -m wip_plots.gw_waveforms --kinds strain_observer` | `observer_waveform`, then `plot_observer_group` |
+| Radiated E, J and phase frequency | `python -m wip_plots.gw_waveforms --kinds gw_radiated` | `radiated`, `frequency_22`, then `plot_radiated` |
+| Two-waveform mismatch | `python gw_mismatch.py --sims A1 A3` | Settings, reader, manual/kuibit calculations, then diagnostic plot |
+| Rebuild waveform caches | `python generate_gw.py` | `config.py` selects inputs/backend; `gw.py` implements reading and FFI |
 
-The detectability and mismatch commands only read GW caches. They do not
-launch the other plots or regenerate waveforms. For a new computer, see the [combined-figure guide](notes/run_combined_gw_plot.md)
-or [mismatch guide](notes/gw_mismatch.md) for the exact input files.
-The mismatch additionally needs kuibit, which is already in the usual Anvil
-environment. Locally use `uv run --with kuibit==1.6.1 python gw_mismatch.py`.
+For the combined figure, read settings -> `analyze()` -> `plot_combined()`.
+The spectral equations and optional continuation model are in the same file;
+there is no separate rendering or model module to trace. All time-history
+views likewise live together in `wip_plots/gw_waveforms.py`, which reads each
+simulation once and reuses its radius caches.
 
-## Running
+Detectability `--plots` accepts `combined`, `strain`, `distance`, `radius`,
+`averaging`, `reference`, and `extrapolation`. Its default is measured
+`combined`. Optional fits are calculated only when requested. The WIP batch
+requests `BATCH_PLOTS`, which includes the labelled extrapolation.
 
-On Anvil, activate the plotting environment (`condactivate`), then:
+Waveform `--kinds` accepts `psi4`, `strain`, `psi4_minus_ml`, `strain_minus_ml`,
+`strain_from_psi4_minus_ml`, `strain_panel`, `strain_observer`, and `gw_radiated`.
+With no selection it draws all views. `--radius-index` chooses one extraction;
+otherwise modal/polarization views use indices 4 and 8, and observer/radiated
+views use index 8. The individual runner adds per-case radius/mode comparisons.
 
-```bash
-./run_all.py                      # GW cache, then paper + WIP + individual (--extra)
-./generate_gw.py                  # GW cache only
-./run_paper.py modes phase        # selected paper plots
-./run_wip.py detectability toomre # selected WIP plots
-./wip_plots/run_individual.py A1 --extra
-./generate_2d_indices.py          # pre-build 2D indices
-```
+Outputs are under `figures/`:
 
-Detached: `nohup ./run_all.py > run_logs/run_all.log 2>&1 < /dev/null &`.
-Locally: `uv sync` once, then prefix commands with `uv run`. Tests:
+| Family | Products |
+| --- | --- |
+| Combined detectability | `gw/detectability/radius_<index>.{png,pdf}` |
+| Optional continuation | `gw/detectability/radius_<index>_conditional.{png,pdf}` |
+| Companion information | `_caption.tex`, `_examples.json`; measured `_inputs.json` |
+| Other detectability checks | `gw/gw_detectability_*` and per-case diagnostic folders |
+| Modal/polarization/observer histories | `gw/`; differences in `gw/difference/` |
+| Radiated E/J/frequency | `wip/gw_radiated.{png,json}` |
+| Mismatch | `wip/gw_mismatch/<weighting>/<first>_<second>.*` |
 
-```bash
-uv run python -m unittest discover -s tests -t .
-```
+The combined figure is 7 inches wide. Its examples are ordered by BH mass:
+10/50 solar masses in CE, 1000 in DECIGO, and 100000 in LISA. Their distances
+solve the largest SNR=8 reach among the plotted cases. The caption/JSON records
+BH mass, distance, redshift, SNR and the winning case/detector. Use
+`--example-labels key` or `inline` to change the presentation.
 
-`run_all.py` stops if cache generation fails; GW plots only read caches. Set
-`RUN_GW_CACHE = False` in `config.py` only for an intentional plot-only rerun.
-
-## WIP plots (`./run_wip.py <name>`)
-
-| Name | Output (under `figures/`) | What it shows |
-| --- | --- | --- |
-| `detectability` | `gw/gw_detectability_*` | Default suite: measured combined figure, radius/averaging checks, fixed reference source, labelled extrapolation |
-| `temporal_trial` | `<case>/gw_temporal_*`, `gw/temporal_trial.json` | Opt-in Wessel mass-driven (2,2) tail; not in default runs |
-| `gw_mismatch` | `wip/gw_mismatch/<weighting>/<first>_<second>.*` | Opt-in complex (2,2) mismatch, A1/A3 by default: independent NumPy and installed kuibit calculations; [settings and equations](notes/gw_mismatch.md) |
-| `gw_radiated` | `wip/gw_radiated.{png,json}` | Radiated E, J_z (detectability modes) and (2,2) frequency over f_orb |
-| `psi4`, `strain`, `*_minus_ml` | `gw/`, `gw/difference/` | Waveforms and disk-minus-ML differences |
-| `strain_panel`, `strain_observer` | `gw/` | Polarization panel; face-on strain at 100 Mpc |
-| `accretion`, `restmass` | `wip/` | AH flux vs mass budget; total rest mass |
-| `toomre` | `wip/toomre*.png` | Newtonian Q, plus Romeo and Meidt variants |
-| `mode_appendix`, `modes_345` | `wip/mode_*`, `wip/modes_345.png` | Mode growth, matter/GW frequency match, C3-C5 |
-| `shibata` | `wip/compactness/` | Shibata Fig. 5 recreation and comparison |
-| `displacement`, `horizon`, `irreducible_mass`, `radii` | `wip/` | BH displacement and horizon diagnostics |
-
-Paper figures keep stable LaTeX-facing names in `figures/`; individual
-products go to `figures/A1/` through `figures/B3/`. Nothing under `figures/`
-is tracked.
-
-To run only the GW diagnostics you need, use their direct commands:
-
-```bash
-# Radius/averaging checks, without extrapolation or a full mass/distance scan:
-python gw_detectability.py --plots radius averaging --sims A1 A3
-# Only strain histories at one extraction index:
-python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
-```
-
-The same detectability file produces the combined figure and its checks;
-`--plots` chooses `combined`, `strain`, `distance`, `radius`, `averaging`,
-`reference` or `extrapolation`. Its default is the measured combined figure.
-`run_wip.py detectability` explicitly requests the `BATCH_PLOTS` suite,
-including the labelled extrapolation, using the same command options and output names as a direct invocation.
-
-All time-history views belong to `wip_plots/gw_waveforms.py`. Use `--kinds`
-for modal `psi4`/`strain`, the three ML differences, `strain_panel`, or
-`strain_observer`. The actual preparation is in `waveform()` and
-`observer_waveform()`; drawing follows it and the command is at the bottom.
-The batch runner groups requested waveform views into one call, reading each
-radius once. Observer-only runs read the FFI strain caches directly.
-Energy/angular-momentum diagnostics stay in `gw_radiated.py`: they perform a
-different calculation rather than presenting another waveform view.
-
-The five former per-view/forwarding scripts were removed. Use these owning
-files directly; there are no compatibility command wrappers.
+GW caches are ignored by Git. The [combined-figure guide](notes/run_combined_gw_plot.md)
+lists the two files needed per case/radius for a separate clone and explains
+index 6 versus raw `Psi4_rad.mon.7`. Waveform histories also need the configured
+raw extraction files; observer-only and mismatch runs read strain caches.
+The [mismatch guide](notes/gw_mismatch.md) gives its inputs and equations.
+Mismatch needs kuibit, installed in the normal Anvil environment; locally use
+`uv run --with kuibit==1.6.1 python gw_mismatch.py`.
 
 ## Compactness comparison
 
-The comparison is reproducible from this checkout: the full COCAL
-`bhtphyseq.dat` inputs are already included under `data/initial_profiles/`.
-No Anvil simulation output or GW cache is required. From the repository root:
+The complete COCAL sequences are tracked in `data/initial_profiles/`; this
+figure needs no simulation output or GW cache.
 
 ```bash
-uv sync
-uv run python -m wip_plots.disk_compactness_comparison --sequences
-# Same overlay plus a full-sequence overview above it:
-uv run python -m wip_plots.disk_compactness_comparison --sequences --overview
-# Original comparison without sequence overlays/overview:
-uv run python -m wip_plots.disk_compactness_comparison --no-sequences
+python -m wip_plots.disk_compactness_comparison               # sequences, no overview
+python -m wip_plots.disk_compactness_comparison --overview    # overview above the zoom
+python -m wip_plots.disk_compactness_comparison --no-sequences
 ```
 
-On Anvil, use the normal plotting environment and `python` instead of
-`uv run python`. The registered `run_wip.py shibata` command includes sequences
-by default; `INCLUDE_SEQUENCES` at the top of the plot module controls that
-default. Existing TeX/Palatino rendering is retained and requires the normal
-TeX Live installation, including Palatino fonts.
+Each command saves `reference` and the requested comparison as PNG/PDF in
+`figures/wip/compactness/`. The comparison names are `sequences_zoom`,
+`sequences_overview`, and `selected_only`. Width is 3.75 inches; height is
+3 inches, or 4.2 with the overview. Normal TeX/Palatino rendering is retained.
 
-Each run saves `reference` and the selected comparison in
-`figures/wip/compactness/`, as PNG/PDF. The comparison is `sequences_zoom`
-by default, `sequences_overview` with `--overview`, or `selected_only` with
-`--no-sequences`. There are no duplicate exports under older filenames.
-The comparison remains **3.75 inches wide** and 3 inches high. With `--overview`
-it is 4.2 inches high: a small overview shows all 17 A and 43 B models, and the
-main comparison retains its low-mass zoom. Light circles/solid
-lines identify sequence A; light triangles/dashed lines identify sequence B.
-Coloured labelled markers identify the evolved models: A1/A2/A3 are sequence
-models 1/5/7, and B1/B2/B3 are models 28/32/35.
+`read_cocal_sequence` reads the first `Rest, proper mass` value (rest mass),
+the first `Outer point (width)` coordinate, and each model's `Black hole mass (M)`.
+Both coordinates use the initial BH mass, not total ADM mass. Sequence order
+is preserved through radius turnbacks, and evolved coordinates are checked
+against full-precision reference values. The overview includes all 17 A and
+43 B models. A1/A2/A3 select sequence models 1/5/7; B1/B2/B3 select 28/32/35.
+Light circles/solid lines denote A; triangles/dashed lines denote B.
 
-The parser reads the first value on `Rest, proper mass` (rest mass, not proper
-mass), the first coordinate on `Outer point (width)`, and each model's own
-`Black hole mass (M)`. It preserves sequence order, including the high-mass
-branches that turn back in radius, and verifies the six evolved coordinates
-against the existing full-precision comparison values. Both plotted coordinates
-are normalized by the initial BH mass, not total ADM mass.
-
-## GW conventions
-
-For **just the polished combined distance + characteristic-strain figure**, use
-the complete workflow file (in the normal plotting environment):
+## Batch commands and other plots
 
 ```bash
-python gw_detectability.py                   # current default: radius index 8
-python gw_detectability.py --radius-index 6  # compare another extraction
+./run_all.py                      # rebuild GW caches; paper, WIP and individual plots
+./run_paper.py modes phase         # selected approved figures
+./run_wip.py detectability toomre  # selected exploratory families
+./wip_plots/run_individual.py A1 --extra
+./generate_2d_indices.py
 ```
 
-Outputs are `figures/gw/detectability/radius_<index>.{png,pdf}`, with caption,
-example parameters and input paths alongside. Each index gets separate files.
-For A cases index 6 means raw `Psi4_rad.mon.7`; index 7 means `.8`.
-Cached GW inputs are not included in GitHub. See
-[the run/edit guide](notes/run_combined_gw_plot.md) for the two required
-files per case/radius. The calculation and drawing are together in
-`gw_detectability.py`; the parser is at the bottom.
+`run_all.py` stops if cache generation fails. Only `generate_gw.py` writes GW
+caches; plotting does not integrate or regenerate them. Set `RUN_GW_CACHE=False`
+in `config.py` only for an intentional plot-only run. Detached runs can use
+`nohup ./run_all.py > run_logs/run_all.log 2>&1 < /dev/null &`.
 
-The combined detectability figure is 7 inches wide, with distance reach above
-characteristic strain, exterior legends and lettered source examples following
-Wessel Fig. 10. Exports live in `figures/gw/detectability/` as
-`radius_<index>.{png,pdf}` and `radius_<index>_conditional.{png,pdf}`.
-Each figure has one output path; the scripts do not make historical-name copies.
-Their generated `_caption.tex` and `_examples.json` companions
-give masses, luminosity distances, redshifts and SNRs. All four examples solve
-the uppermost SNR=8 distances among the plotted cases at fixed source masses:
-(a)/(b) use 10/50 Msun in CE; (c)/(d) use 1000/1e5 Msun in DECIGO/LISA.
-Letters follow increasing source BH mass in both panels and their companions.
-Exact example masses are included in the reach curves. Conditional-tail figures
-solve their own threshold distances; they are explicitly labelled as conditional.
+| WIP name | Purpose |
+| --- | --- |
+| `detectability` | Measured combined figure, radius/averaging/reference checks and labelled continuation |
+| `temporal_trial` | Explicit opt-in fit/join/on-off diagnostics |
+| `gw_mismatch` | Explicit opt-in manual/kuibit comparison |
+| `psi4`, `strain`, `*_minus_ml`, `strain_panel`, `strain_observer`, `gw_radiated` | Views in the waveform family |
+| `shibata` | Compactness comparison with sequences |
+| `accretion`, `restmass` | Horizon flux/mass budget and total rest mass |
+| `mode_appendix`, `modes_345` | Matter modes, frequency comparisons and higher-mode growth |
+| `toomre` | Newtonian Q and Romeo/Meidt comparisons |
+| `displacement`, `horizon`, `irreducible_mass`, `radii` | BH displacement and horizon diagnostics |
 
-- Mass: `disk_to_bh_mass_ratio` is M0_disk/M_BH; `mlittle` is the initial BH
-  mass in code units (G = c = M_sun = 1); `gw_madm` is the total ADM mass,
-  used only for retarded time. Detectability rescales by M_BH, not M_ADM.
-- Waveforms: `Psi4 -> gauge-corrected t_ret -> fixed-frequency integration ->
-  h_+, h_x`. The NumPy backend is parity-tested against `psi4_hlm_ref`
-  (`GW_STRAIN_BACKEND = "fortran"` uses the reference). The cache also stores
-  `rpsi4_uniform.dat`, which detectability reads directly, so it never uses FFI.
-- Time axes follow `GW_TIME_SCALE` (`"M_BH"`, `"M_ADM"`, `"P_c"`, `"code"`).
-- Radii: index 8 (outermost) is the default, index 4 the wave-zone check.
-  There is no extrapolation to infinity.
-- Detectability: the four l=2, m!=0 modes, 1000 M_BH transient cut, 5% Tukey
-  taper, source-orientation mean of the Wessel Eq. (8) amplitude, SNR=8.
-  Detector response gives the exact sky- and polarization-averaged SNR
-  (A+/CE/DECIGO x sqrt(5/2); ET and LISA in `detector_curves/README.md`).
-  The response factor follows a direct antenna average for this source
-  convention. Wessel footnote 4 uses different sensitivity-curve language;
-  its numerical SNRs have not been reproduced from the published inputs.
-- Difference plots keep `h(Psi4_disk) - h(Psi4_ML)` and `h(Psi4_disk - Psi4_ML)`
-  distinct.
+Approved figures are registered in `run_paper.py`; exploratory families in
+`run_wip.py`. Paper filenames stay in `figures/`, with individual outputs in
+`figures/<case>/`. Generated figures/movies and local movie scripts are ignored.
 
-For paper writing, `notes/gw_paper_methods.md` gives every equation the code
-uses, plus a compiled LaTeX `algorithm` block (Sec. 9). Measured sensitivities
-and dated numbers are in `notes/KNOWLEDGE.md`.
+## Scientific conventions and methods
 
-## Data safety and syncing
+- `mlittle` is the initial BH mass in simulation units; `gw_madm` is total ADM
+  mass, used for retarded time. Physical detectability scales with BH mass.
+- FFI histories and direct-Psi4 detectability are separate calculations.
+  The NumPy FFI is parity-tested against `psi4_hlm_ref`; the reference Fortran
+  backend remains available for that calculation.
+- Detectability uses the four l=2, m!=0 modes, a 1000 BH-mass transient cut,
+  5% Tukey taper, source-orientation mean amplitude and SNR threshold 8.
+  This amplitude statistic is not a population-averaged SNR.
+- Compare `h_c` with `h_n=sqrt(f S_eff)` and apply detector response once.
+  Noise-table conventions are in [detector_curves/README.md](detector_curves/README.md).
+- Radii 4/8 are finite-radius checks; no extrapolation to infinity is applied.
+  `GW_TIME_SCALE` selects BH mass, ADM mass, orbital-period or code-time axes.
+- Subtracting two FFI strains and integrating the Psi4 difference are distinct
+  views with separate caches. Optional future-time fits are labelled conditional.
 
-- Simulation directories are read-only. Each case has ordered `data_roots`;
-  later roots replace overlapping restart data in memory only. The only
-  machine-specific paths are `MILTON_DATA_ROOT` and `SUPPLEMENTAL_DATA_ROOT`.
-- Canonical copies: this checkout on the Mac and
-  `/anvil/projects/x-mca99s008/maxwork/BHDiskplots` on Anvil.
-- Before local work, pull Anvil's uncommitted edits and compare. Before syncing
-  back, check again. Copy changed source files only: never mirror `.git/`,
-  environments, `gw_work/`, `figures/` or logs, and never `rsync --delete`.
-- `human*` notes are preserved verbatim.
+[GW paper methods](notes/gw_paper_methods.md) gives the equations, averaging
+conventions and LaTeX algorithm. The [detailed walkthrough](notes/gw_workflow_explained.md)
+maps equations to code. Dated measurements and limitations are in
+[KNOWLEDGE.md](notes/KNOWLEDGE.md); pending work/history is in
+[WORKING.md](notes/WORKING.md). Published Wessel SNRs have not been reproduced
+from the available reference inputs.
 
-## Plot promotion
+## Development and data safety
 
-New plots start in `wip_plots/`. Once the method and presentation are agreed,
-move the file to `paper_plots/` and add it to `PAPER_PLOTS` in `run_paper.py`.
-Movie scripts are local and ignored.
+Run `uv run python -m unittest discover -s tests -t .` for the normal suite;
+include `--with kuibit==1.6.1` after `uv run` for both mismatch methods locally.
+
+Simulation directories are read-only. Ordered `data_roots` merge restarts in
+memory, with later roots replacing overlaps. Shared paths/metadata live in
+`config.py`; cache/FFI infrastructure is in `gw.py`; common readers, units and
+style are in `helpers/`. Scientific `human*` notes are kept as supplied.
+
+The canonical checkouts are this Mac repository and
+`/anvil/projects/x-mca99s008/maxwork/BHDiskplots`. Compare Anvil edits before
+working or syncing. Sync changed sources only, preserving unrelated dirty
+work; never mirror `.git`, environments, simulation data or generated caches,
+and never use `rsync --delete`. Promote an agreed plot family from
+`wip_plots/` to `paper_plots/` and register it in `run_paper.py`.

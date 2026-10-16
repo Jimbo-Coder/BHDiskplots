@@ -22,7 +22,7 @@ WIP_PLOTS = {
     "strain": "wip_plots.gw_waveforms",
     "strain_panel": "wip_plots.gw_waveforms",
     "strain_observer": "wip_plots.gw_waveforms",
-    "gw_radiated": "wip_plots.gw_radiated",
+    "gw_radiated": "wip_plots.gw_waveforms",
     "strain_minus_ml": "wip_plots.gw_waveforms",
     "strain_from_psi4_minus_ml": "wip_plots.gw_waveforms",
     "detectability": "gw_detectability",
@@ -56,7 +56,7 @@ def main(argv=None):
             module.temporal_main([])
         elif module_name == "wip_plots.gw_waveforms":
             if not waveforms_done:
-                module.main([], kinds=[key for key in requested if WIP_PLOTS[key] == module_name])
+                module.main(["--kinds", *[key for key in requested if WIP_PLOTS[key] == module_name]])
                 waveforms_done = True
         elif name == "detectability":
             module.main(["--plots", *module.BATCH_PLOTS])

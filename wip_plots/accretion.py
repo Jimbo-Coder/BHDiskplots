@@ -179,9 +179,8 @@ def plot_mass_budget(sims, histories, *, groups=CASE_GROUPS, late=False):
 def late_mass_budget(sim, history):
     """Rebase all three quantities over the SAME GW fit interval, no extrapolation."""
     import gw_detectability as analysis
-    import gw_detectability_extras as extras
 
-    trial = extras.temporal_trial_for_case(sim.config)
+    trial = analysis.temporal_trial_for_case(sim.config)
     start, end = np.array([trial.fit.start, trial.fit.end])*sim.config.mlittle/sim.config.Pc
     t, tb = history["time_pc"], history["bh_time_pc"]
     if start < max(t[0], tb[0]) or end > min(t[-1], tb[-1]):

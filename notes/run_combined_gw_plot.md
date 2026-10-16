@@ -119,7 +119,7 @@ The command-line parser is at the bottom. The few presentation options remain
 available, including `--example-labels key`, but they are outside the path
 through the calculation. The standard font/style and cache-generation readers
 remain shared with other figures. Optional validation sweeps and continuation
-fits live in `gw_detectability_extras.py`; they do not run for this command.
+fits are labelled in section 2 of this file; they do not run for the default command.
 The batch runner calls this same file directly; the additional diagnostic
 drawings are in section 5 and the single command is in section 6.
 
@@ -158,7 +158,8 @@ python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
 ```
 
 Other views use the same file: `--kinds strain_panel` gives the six-case
-polarization grid; `--kinds strain_observer` gives physical face-on strain.
+polarization grid; `--kinds strain_observer` gives physical face-on strain;
+`--kinds gw_radiated` gives emitted energy, angular momentum and phase frequency.
 The modal families are `psi4`, `strain`, `psi4_minus_ml`, `strain_minus_ml`
 and `strain_from_psi4_minus_ml`. The last two remain distinct: subtracting two
 FFI strains and integrating a Psi4 difference use different caches. The reader,
