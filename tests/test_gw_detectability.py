@@ -9,6 +9,7 @@ import numpy as np
 from scipy.signal.windows import tukey as scipy_tukey
 import config
 import gw_detectability as analysis
+import gw_detectability_extras as extras
 
 from gw_detectability import (
     DimensionlessSpectrum,
@@ -35,27 +36,27 @@ class WesselTailTests(unittest.TestCase):
         data = dict(time=self.time, strain=self.strain, mass_time=self.mass_time,
                     mass=self.mass, orbital_period=40.)
         data.update(overrides)
-        return analysis.wessel_trial(**data)
+        return extras.wessel_trial(**data)
 
     def test_flux_mass_proxy_preserves_sign_and_initial_offset(self):
         data = np.zeros((3, 13))
         data[:, 1], data[:, 2] = [.04, .042, .044], .01
         data[:, 12] = [2., 2.001, 1.999]
-        np.testing.assert_allclose(analysis.disk_mass_for_tail(data, "horizon_flux"),
+        np.testing.assert_allclose(extras.disk_mass_for_tail(data, "horizon_flux"),
                                    [.03, .029, .031])
-        np.testing.assert_allclose(analysis.disk_mass_for_tail(data, "outside_mass"),
+        np.testing.assert_allclose(extras.disk_mass_for_tail(data, "outside_mass"),
                                    [.03, .032, .034])
         data[-1, 12] = 3
         with self.assertRaisesRegex(ValueError, "positive"):
-            analysis.disk_mass_for_tail(data, "horizon_flux")
+            extras.disk_mass_for_tail(data, "horizon_flux")
 
     def test_analytic_strain_tail_second_derivative_is_psi4(self):
         trial = self.trial()
         lam = -.003+.21j
         p = lam**2*self.strain
-        time, extended = analysis.continued_psi4_mode(self.time, p, trial)
+        time, extended = extras.continued_psi4_mode(self.time, p, trial)
         before_taper = time <= trial.fit.end+np.log(trial.fit.mass_end/
-                       (analysis.TAIL_REMAINING_MASS_FRACTION*trial.initial_mass))/trial.fit.gamma
+                       (extras.TAIL_REMAINING_MASS_FRACTION*trial.initial_mass))/trial.fit.gamma
         np.testing.assert_allclose(extended[before_taper],
                                    lam**2*trial.fit.strain(time[before_taper]), rtol=1e-9)
         np.testing.assert_allclose(extended[:len(p)], p, rtol=1e-9)
@@ -73,12 +74,12 @@ class WesselTailTests(unittest.TestCase):
     def test_psi4_join_uses_retained_endpoint_not_dropped_cache_sample(self):
         trial = self.trial()
         p = (-.003+.21j)**2*self.strain
-        time, extended = analysis.continued_psi4_mode(self.time[:-1], p[:-1], trial)
+        time, extended = extras.continued_psi4_mode(self.time[:-1], p[:-1], trial)
         expected = (-trial.fit.gamma+1j*trial.fit.omega)**2*trial.fit.strain(self.time[-2])
         self.assertAlmostEqual(abs(extended[len(p)-2]-expected), 0., places=12)
         self.assertAlmostEqual(time[len(p)-2], self.time[-2], places=10)
         with self.assertRaisesRegex(ValueError, "endpoints"):
-            analysis.continued_psi4_mode(self.time[:-3], p[:-3], trial)
+            extras.continued_psi4_mode(self.time[:-3], p[:-3], trial)
 
     def test_psi4_tail_all_modes_reconstruct_before_averaging(self):
         trial = self.trial()
@@ -87,7 +88,7 @@ class WesselTailTests(unittest.TestCase):
         copies = {k: v.copy() for k, v in modes.items()}
         spectrum, _ = direct_psi4_spectrum(self.time, modes, 1., continuation=trial,
                         transient_cutoff_mbh=0, theta_nodes=4, phi_nodes=8)
-        time, p = analysis.continued_psi4_mode(self.time, modes[2, 2], trial)
+        time, p = extras.continued_psi4_mode(self.time, modes[2, 2], trial)
         window = tukey_window(len(self.time))
         p[:len(self.time)//2] *= window[:len(self.time)//2]
         measured = np.pad(modes[2, 1]*window, (0, len(time)-len(self.time)))
@@ -116,7 +117,7 @@ class WesselTailTests(unittest.TestCase):
         np.testing.assert_allclose(trial.fit.strain(self.time), self.strain, rtol=1e-9)
         np.testing.assert_allclose(trial.extended_strain[:len(self.time)], self.strain, rtol=1e-9)
         self.assertAlmostEqual(abs(trial.extended_strain[-1]), 0., places=12)
-        end_mass = trial.fit.mass(trial.extended_time[-1]-analysis.TAIL_TAPER_ORBITS*40)
+        end_mass = trial.fit.mass(trial.extended_time[-1]-extras.TAIL_TAPER_ORBITS*40)
         self.assertAlmostEqual(end_mass/self.mass[0], .1, delta=1e-4)
         np.testing.assert_array_equal(trial.finite_spectrum.frequency, trial.extended_spectrum.frequency)
         self.assertGreaterEqual(trial.finite_spectrum.frequency[0],
@@ -178,7 +179,7 @@ class WesselTailTests(unittest.TestCase):
                 plt.close(fig)
 
     def test_budget_does_not_silently_truncate_tail(self):
-        with mock.patch.object(analysis, "TAIL_MAX_SAMPLES", 100):
+        with mock.patch.object(extras, "TAIL_MAX_SAMPLES", 100):
             trial = self.trial()
         self.assertIn("tail exceeds sample budget; no truncated substitute", trial.issues)
         self.assertIsNone(trial.extended_strain)
@@ -202,7 +203,7 @@ class WesselTailTests(unittest.TestCase):
                 for ax in fig.axes:
                     lines = {line.get_label(): line for line in ax.lines}
                     end = trial.time[-1]
-                    join_start = end-analysis.TAIL_JOIN_ORBITS*40.
+                    join_start = end-extras.TAIL_JOIN_ORBITS*40.
                     self.assertEqual(lines["Simulation"].get_xdata()[-1], end)
                     self.assertEqual(lines["Blend"].get_xdata()[0], join_start)
                     self.assertEqual(lines["Blend"].get_xdata()[-1], end)
@@ -220,7 +221,7 @@ class WesselTailTests(unittest.TestCase):
         signal = self.strain*(1+.04*np.sin(.025*self.time))
         trial = self.trial(strain=signal)
         self.assertEqual(trial.issues, [])
-        before = self.time < trial.fit.end-40*analysis.TAIL_JOIN_ORBITS
+        before = self.time < trial.fit.end-40*extras.TAIL_JOIN_ORBITS
         np.testing.assert_array_equal(trial.extended_strain[:self.time.size][before], signal[before])
         np.testing.assert_allclose(trial.extended_strain[self.time.size-1],
                                    trial.fit.strain(self.time[-1]), rtol=1e-10)
@@ -233,7 +234,7 @@ class WesselTailTests(unittest.TestCase):
 
     def test_single_mode_spectrum_matches_general_polarization_average(self):
         nfft, dt = 4096, self.time[1]-self.time[0]
-        spectrum = analysis._single_22_spectrum(self.strain, dt, nfft, .01)
+        spectrum = extras._single_22_spectrum(self.strain, dt, nfft, .01)
         fft = np.fft.fft(self.strain, n=nfft)*dt
         frequency = np.fft.fftfreq(nfft, dt)
         pos = np.flatnonzero((frequency > 0) & (frequency >= .01))
@@ -253,7 +254,7 @@ class WesselTailTests(unittest.TestCase):
                 mock.patch.object(style, "USE_LATEX_TEXT", False), \
                 mock.patch.dict(style.PAPER_PLOT_STYLE, {"text.usetex": False,
                                                         "font.family": "serif", "font.weight": "normal"}), \
-                mock.patch.object(analysis, "temporal_trial_for_case", return_value=trial):
+                mock.patch.object(extras, "temporal_trial_for_case", return_value=trial):
             report = plots.temporal_main(["--outdir", tmp], cases=[case])
             self.assertEqual(report["A1"]["issues"], [])
             self.assertIn("snr", report["A1"])
@@ -304,14 +305,15 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
 
     def test_source_scale_labels_use_latex_scientific_notation(self):
         from wip_plots import gw_detectability_all as plots
-        self.assertEqual(plots._scientific_label(1e5), r"10^{5}")
-        self.assertEqual(plots._scientific_label(500), r"5\times 10^{2}")
-        self.assertEqual(plots._scientific_label(.025), r"2.5\times 10^{-2}")
+        self.assertEqual(analysis._scientific_label(1e5), r"10^{5}")
+        self.assertEqual(analysis._scientific_label(500), r"5\times 10^{2}")
+        self.assertEqual(analysis._scientific_label(.025), r"2.5\times 10^{-2}")
 
     def test_fixed_examples_need_no_reference_case_or_horizon_scan(self):
         spectrum = DimensionlessSpectrum(np.geomspace(.001, .1, 100), np.ones(100), "mean")
         source = SimpleNamespace(spectrum=spectrum)
-        with mock.patch.object(analysis, "source_spectra", return_value=({"B1": source}, {})), \
+        with mock.patch.object(analysis, "read_rpsi4_modes", return_value=(np.arange(10.), {})), \
+                mock.patch.object(analysis, "direct_psi4_spectrum", return_value=(spectrum, SimpleNamespace(samples=10,duration_mbh=9.))), \
                 mock.patch.object(analysis, "horizon_curves") as horizons, \
                 mock.patch.object(analysis, "EXAMPLE_TARGETS", (("ce", 50., 100.), ("ce", 10., 50.))):
             result = analysis.analyze(["B1"], compute_horizons=False)
@@ -380,14 +382,14 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                                            {"ce":{"A3":np.array([1.,100.])}}))
         with tempfile.TemporaryDirectory() as tmp, \
                 plt.rc_context({"text.usetex":False,"font.family":"serif"}), \
-                mock.patch.object(plots,"savefig",
+                mock.patch.object(analysis,"savefig",
                                   side_effect=lambda fig,args,name: fig.savefig(Path(args.outdir)/name)) as save:
-            plots._plot_detectability(result, SimpleNamespace(outdir=Path(tmp),no_save=False))
+            analysis.plot_combined(result, SimpleNamespace(outdir=Path(tmp),no_save=False))
             fig=save.call_args.args[0]
             try:
                 self.assertAlmostEqual(fig.get_figwidth(),7.)
                 self.assertEqual(len(fig.legends),2)
-                self.assertEqual([row['label'] for row in plots.example_source_info(result)],list('abcd'))
+                self.assertEqual([row['label'] for row in analysis.example_source_info(result)],list('abcd'))
                 self.assertTrue((Path(tmp)/'gw/gw_detectability_combined_caption.tex').is_file())
                 fig.canvas.draw()
             finally:
@@ -409,7 +411,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                 patch = ax.patches[-1]
                 self.assertTrue(np.all(np.isfinite(patch.get_path().vertices)))
                 self.assertGreater(len(patch.get_path().vertices), 100)
-                self.assertEqual(patch.get_facecolor(), to_rgba(plots.DETECTOR_COLOR))
+                self.assertEqual(patch.get_facecolor(), to_rgba(analysis.DETECTOR_COLOR))
                 fig.canvas.draw()
                 self.assertEqual((ax.get_xlim(), ax.get_ylim()), limits)
             finally:
@@ -441,8 +443,8 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
                     self.assertEqual(secondary.yaxis.label.get_fontsize(),
                                      ax.yaxis.label.get_fontsize())
                     np.testing.assert_array_equal(ax.lines[0].get_ydata(), distances)
-                    self.assertEqual(ax.get_ylim(), plots.HORIZON_YLIM)
-                    for limits in (plots.HORIZON_YLIM, (.1, 5e3)):
+                    self.assertEqual(ax.get_ylim(), analysis.HORIZON_YLIM)
+                    for limits in (analysis.HORIZON_YLIM, (.1, 5e3)):
                         ax.set_ylim(*limits)
                         fig.canvas.draw()
                         np.testing.assert_allclose(secondary.get_ylim(),
@@ -564,7 +566,7 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
             (directory / "strain_cache.json").write_text(json.dumps({
                 "backend": "python", "source_label": "9", "madm": case.gw_madm,
             }))
-            sources, _ = analysis.source_spectra(["A1"])
+            sources, _ = extras.source_spectra(["A1"])
 
         self.assertEqual(tuple(sources), ("A1",))
         source = sources["A1"]
@@ -767,6 +769,59 @@ class DirectPsi4SpectrumTests(unittest.TestCase):
         distance = cosmology.luminosity_distance_mpc(redshift)
         np.testing.assert_allclose(cosmology.redshift_at_luminosity_distance(distance), redshift, rtol=2e-6)
 
+
+
+class DiagnosticSelectionTests(unittest.TestCase):
+    def test_selected_measured_plots_do_not_run_other_diagnostics(self):
+        from wip_plots import gw_detectability_all as plots
+
+        result = SimpleNamespace(sources={}, inner={"A1": object()})
+        # Editing the default list must not remove an explicit CLI choice.
+        with mock.patch.object(plots, "DEFAULT_PLOTS", ("combined",)):
+            for requested in (("combined",), ("strain",), ("distance",),
+                              ("radius", "averaging"), ("reference",)):
+                with self.subTest(plots=requested), \
+                        mock.patch.object(analysis, "analyze", return_value=result) as analyze, \
+                        mock.patch.object(analysis, "plot_combined") as combined, \
+                        mock.patch.multiple(
+                            plots, setup=mock.DEFAULT, apply_styles=mock.DEFAULT,
+                            _plot_radius_comparison=mock.DEFAULT, _plot_method_comparison=mock.DEFAULT,
+                            _plot_characteristic_strain=mock.DEFAULT, _plot_horizon=mock.DEFAULT,
+                            _plot_extrapolation=mock.DEFAULT) as draw:
+                    plots.main(["--plots", *requested])
+                    analyze.assert_called_once_with(
+                        None, compare_radius="radius" in requested,
+                        compare_direction="averaging" in requested,
+                        compute_horizons=bool(set(requested) & {"combined", "distance"}),
+                        include_reference="reference" in requested)
+                    self.assertEqual(combined.call_count, int("combined" in requested))
+                    self.assertEqual(draw["_plot_radius_comparison"].call_count, int("radius" in requested))
+                    self.assertEqual(draw["_plot_method_comparison"].call_count, int("averaging" in requested))
+                    self.assertEqual(draw["_plot_horizon"].call_count, int("distance" in requested))
+                    self.assertEqual(draw["_plot_characteristic_strain"].call_count,
+                                     int("strain" in requested or "reference" in requested))
+                    draw["_plot_extrapolation"].assert_not_called()
+
+    def test_default_retains_the_existing_batch_outputs(self):
+        from wip_plots import gw_detectability_all as plots
+
+        result = SimpleNamespace(sources={}, inner={"A1": object()})
+        with mock.patch.object(analysis, "analyze", return_value=result) as analyze, \
+                mock.patch.object(analysis, "plot_combined") as combined, \
+                mock.patch.multiple(
+                    plots, setup=mock.DEFAULT, apply_styles=mock.DEFAULT,
+                    _plot_radius_comparison=mock.DEFAULT, _plot_method_comparison=mock.DEFAULT,
+                    _plot_characteristic_strain=mock.DEFAULT, _plot_horizon=mock.DEFAULT,
+                    _plot_extrapolation=mock.DEFAULT) as draw:
+            plots.main([])
+        analyze.assert_called_once_with(None, compare_radius=True, compare_direction=True,
+                                        compute_horizons=True, include_reference=True)
+        combined.assert_called_once_with(result, mock.ANY)
+        for name in ("_plot_radius_comparison", "_plot_method_comparison",
+                     "_plot_characteristic_strain", "_plot_extrapolation"):
+            draw[name].assert_called_once()
+        draw["_plot_characteristic_strain"].assert_called_once_with(result, mock.ANY, fixed_source=True)
+        draw["_plot_horizon"].assert_not_called()
 
 
 if __name__ == "__main__":

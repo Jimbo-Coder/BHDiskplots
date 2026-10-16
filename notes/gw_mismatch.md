@@ -1,249 +1,170 @@
-# A1 versus A3: two independent mismatch calculations
+# A1 versus A3 mismatch, in the simulation's own code units
 
-This is an optional WIP diagnostic. It compares the coherent complex
-**(2,2) FFI strain** of A1 and A3, using both a direct NumPy calculation and
-the actual public `kuibit.gw_mismatch.mismatch_from_strains` API. Kuibit is
-not a label on a second call to our manual routine. Both methods receive
-the same preprocessed time arrays, complex strains, frequency band and PSD.
+The complete runnable workflow is **`gw_mismatch.py`** in the repository root.
+It contains the settings and file reader, preparation, the independent manual
+calculation, the actual kuibit call, the analysis, and the plot. CLI overrides
+are at the bottom. `wip_plots/gw_mismatch.py` only forwards the old command.
 
-The default answers for the 2026-10-16 cache snapshot are:
+The default comparison uses the stored time and strain columns directly.
+**No physical BH mass, distance or redshift is assigned. Neither waveform is
+divided by its BH mass.** For the current outer-radius FFI caches:
 
-| Weighting | Manual, optimized time and phase | Kuibit, refined grid | Difference |
-| --- | ---: | ---: | ---: |
-| White noise | 0.7901276721 | 0.7901304977 | 0.0000028257 |
-| Cosmic Explorer, initial BH mass 50 solar masses, z=0 | 0.8279063399 | 0.8279064782 | 0.0000001383 |
+| Method | Mismatch |
+| --- | ---: |
+| Independent NumPy calculation, optimized time and phase | 0.7901276721 |
+| kuibit 1.6.1, refined time/phase grid | 0.7901304977 |
 
-On exactly matching time/phase grids, the manual and kuibit values agree
-within floating-point roundoff. The small differences in this table are
-finite search-grid errors, not a different definition of mismatch. These
-numbers are conditional on the signal definition and interval below. They
-do not yet reproduce a colleague's unspecified calculation.
+These are the same to five decimal places: **0.79013**. On the identical
+search grids the two calculations agree to roundoff; the remaining difference
+from the optimized manual answer is finite-grid error. This is conditional on
+the mode, interval and weighting below, not a universal mismatch for every
+possible definition of an A1/A3 signal.
 
-As a resolution check, doubling the requested time/phase counts (513
-times and 256 phase parameters in the broad search, 512 in refinement)
-gives white-noise kuibit mismatch 0.7901287902, only 0.0000011182 above
-the optimized manual result. The manual and kuibit values again agree
-to roundoff on the shared grids.
+## Inputs and preprocessing
 
-## What signal is compared?
+The inputs are `gw_work/A1_psi49/rhphc.dat` and `A3_psi49/rhphc.dat`, with
+their cache manifests. Radius index 8 maps to raw Psi4 file label 9 for A cases.
+Columns 0, 1 and 2 contain retarded time and the plus/cross components of the
+(2,2) FFI strain mode. The complex signal is the **stored**
+`r*h_plus - 1j*r*h_cross`.
 
-The read-only inputs are `gw_work/A1_psi49/rhphc.dat` and
-`gw_work/A3_psi49/rhphc.dat`, with their `strain_cache.json` manifests.
-Parfile radius index 8 maps to file label 9 for these runs. Columns 0, 1
-and 2 contain the retarded time and the cached plus/cross components of
-the (2,2) mode. We construct
+The default common interval is **50 to 406.17804889015 in code time**.
+The end is the earlier waveform endpoint, so A3's extra duration is excluded.
+Both signals are interpolated to one uniform grid (6324 samples, spacing
+0.0563305470331 code-time units), demeaned, tapered by a Tukey window with
+alpha=0.05, and padded to 16384 samples. Padding does not add physical signal;
+at least `2*N-1` samples prevent circular wrapping in the searched lag range.
+
+The frequency band is **0.00842275375854 to 8.43236973575 per code-time unit**:
+three cycles over the retained unpadded duration through 95% of Nyquist.
+DC and Nyquist are excluded. The allowed time shift is plus/minus half the
+retained duration, 178.089024445075 code-time units. The cropped/windowed
+segments stay fixed during the lag search; they are shifted as whole signals.
+No extra signal is extrapolated.
+
+The FFI reconstruction is shared input preparation, not independently checked
+by the two mismatch implementations. This comparison retains phase information;
+an averaged characteristic-strain magnitude cannot replace the input waveform.
+
+## Definition and the two methods
+
+We compare both components of the complex (2,2) mode as an ideal pair of equally
+weighted orthogonal polarization channels. This avoids choosing a particular
+sky position or a single detector projection. It is an intrinsic mode comparison,
+not a physical-network SNR calculation.
+
+For FFTs `H1`, `H3`, an even PSD and the stated positive/negative-frequency band B,
+the manual calculation evaluates
 
 \[
-\tau=t_{\rm ret}/M_{{\rm BH},0},\qquad
-q(\tau)=\frac{r(h_+-i h_\times)_{22}}{M_{{\rm BH},0}}.
+C(\Delta t)=\frac{\sum_{k\in B}H_{1k}H_{3k}^*e^{2\pi i f_k\Delta t}/S_n(|f_k|)}
+{\sqrt{\sum_{k\in B}|H_{1k}|^2/S_n(|f_k|)
+             \sum_{k\in B}|H_{3k}|^2/S_n(|f_k|)}};
+\qquad \mathcal M=1-\max_{\Delta t}|C(\Delta t)|.
 \]
 
-Each run uses its own configured initial BH mass (0.05 in simulation code
-units for both cases). We do not align disk orbital periods or rescale one
-frequency evolution to the other. Independent constant amplitude factors
-cancel from the normalized overlap.
+The absolute value analytically maximizes over a constant complex-mode phase.
+The time shift moves the whole prepared segment; it does not stretch time or
+change the comparison window separately at each shift.
 
-This diagnostic uses cached FFI histories, including their existing
-reconstruction choices and mode-dependent integration cutoffs. It does
-not validate the FFI reconstruction independently. It is separate from
-the direct-Psi4 detectability calculation. In particular, an
-orientation-averaged characteristic-strain **magnitude** cannot replace
-these coherent strains: it has discarded the phase information needed
-for mismatch. There is no synthetic time continuation here.
+To connect this with a 2-norm, let each band-limited, noise-weighted signal have
+unit norm, \(\widehat g_i=g_i/\|g_i\|\). Expanding the squared separation gives
 
-## Finite interval and preprocessing
-
-The default common interval is
-\(1000\leq\tau\leq8123.560977803\), the earlier of the two waveform end
-times after retarded-time normalization. A3's later samples are omitted
-explicitly, so unequal available simulation durations do not become a
-spurious signal-shape difference.
-
-Both modes are linearly interpolated onto the same 6324-sample uniform
-grid, no finer than the coarsest input step. Its spacing is
-\(\Delta\tau=1.126610940662\). We remove each mode's complex mean on this
-interval, apply the same Tukey window with alpha=0.05, and append zeros
-to 16384 samples. At least \(2N-1\) padded samples prevent circular
-wraparound in the allowed linear-lag interval. Padding adds no physical
-signal. The cropped/tapered segment is fixed during the lag search; it
-is shifted as a whole, rather than re-cropped and renormalized at each lag.
-
-The white-noise integration band is
 \[
-4.21137687927\times10^{-4}\leq M_{\rm BH}f
-\leq0.421618486788.
+\|\widehat g_1-e^{i\phi}\widehat g_3(t-\Delta t)\|^2
+=2-2\operatorname{Re}[e^{-i\phi}C(\Delta t)].
 \]
-The low end is three cycles over the **retained**, unpadded duration;
-the high end is 95 percent of the common-grid Nyquist frequency. DC and
-Nyquist are excluded. Both signs of Fourier frequency are retained in
-the manual calculation. The defaults are explicit diagnostic choices,
-not universal optimal cuts; `--start`, `--end`, `--taper`, `--fmin` and
-`--fmax` allow a different agreed comparison.
 
-## Mismatch definition and independent manual method
+Therefore
 
-For one real detector strain the standard inner product is
 \[
-(a,b)=4\,\mathrm{Re}\int_{f_{\min}}^{f_{\max}}
-\frac{\widetilde a(f)\widetilde b^*(f)}{S_n(f)}\,df.
+\mathcal M=\frac12\min_{\Delta t,\phi}
+\|\widehat g_1-e^{i\phi}\widehat g_3(t-\Delta t)\|^2.
 \]
-For the complex mode we use an **ideal pair of equally weighted,
-orthogonal polarization channels**: one sees plus, the other cross.
-This defines an intrinsic mode comparison without choosing a particular
-source sky location or interferometer antenna pattern. It is not a
-claim about a physical detector network's SNR.
 
-Define \(Q_i\) as the complex FFT of \(q_i\). With an even PSD, the
-equivalent two-sided complex correlation is
-\[
-C(\Delta\tau)=
-\frac{\sum_{k\in B} Q_{1k}Q_{3k}^*
- e^{2\pi i f_k\Delta\tau}/S_n(|f_k|)}
- {\sqrt{\left(\sum_{k\in B}|Q_{1k}|^2/S_n(|f_k|)\right)
-              \left(\sum_{k\in B}|Q_{3k}|^2/S_n(|f_k|)\right)}}.
-\]
-Here \(B\) includes positive and negative bins in the stated band.
-A constant mode rotation \(q_3\mapsto e^{i\alpha}q_3\) changes the
-correlation to \(e^{-i\alpha}C\); its largest real overlap is therefore
-\(|C|\), attained at \(\alpha=\arg C\). Our definition is
-\[
-\boxed{\mathcal M=1-\max_{|\Delta\tau|\leq T/2}|C(\Delta\tau)|}.
-\]
-Zero mismatch means identical normalized signals after the allowed
-time/phase shifts; mismatch near one means little normalized overlap.
-The white-noise result corresponds to match \(\simeq0.20987\), not a
-79 percent numerical error or uncertainty in either simulation.
+For white noise this is the ordinary integrated squared difference after band
+selection and normalization. The minimum selects the best whole-signal
+alignment; it is not a minimum or maximum pointwise error. With a detector PSD
+the same relation holds in the corresponding noise-weighted norm.
 
-For justification of the two-sided expression, write
-\(q=p-i c\). Summing the positive- and negative-frequency products
-gives twice the real plus-plus/cross-cross inner product, together with
-the quadrature that mixes plus and cross under a constant rotation.
-The same factor of two appears in each norm. FFT factors of
-\(\Delta\tau\), the integration measure \(\Delta f\), and the
-one-sided factor four cancel between numerator and denominator. They
-are not extra correction factors to insert into a normalized mismatch.
-A constant PSD or detector-response multiplier also cancels. There is
-no extra factor of 1/5 here and no average of normalized overlaps over
-source directions.
+The manual implementation in `gw_mismatch.py` searches every sample lag by
+inverse FFT and refines the strongest peaks with explicit Fourier sums.
+The native-unit manual optimum is near lag **0.13389109 code-time units**.
 
-`ManualOverlap` in `gw_mismatch.py` implements this expression using
-NumPy FFTs and explicit complex Fourier sums. An inverse FFT evaluates
-all sample lags in the full allowed interval, then direct sums refine
-the strongest local peaks and check the boundaries. Phase maximization
-is analytic. This is independent of kuibit's positive-frequency,
-two-real-polarization grid calculation. Both are numerical searches;
-their agreement and convergence are evidence for this comparison,
-not a theorem about an arbitrary waveform's global maximum.
+The second implementation calls the actual installed
+`kuibit.gw_mismatch.mismatch_from_strains` function with `TimeSeries` objects.
+We explicitly pass `antenna_patterns=[(0,1),(1,0)]`, ordered by kuibit as
+`(F_cross,F_plus)`. Summing both channels makes the norm invariant under
+mode rotation. The default is `noises=None`, i.e. white noise.
 
-## Proper use of kuibit
+Kuibit searches 257 times and 128 phase parameters across the broad interval,
+then 257 times and 256 phase parameters near its own coarse maximum. The manual
+code separately evaluates exactly those grids; disagreement above 1e-9 raises
+an error. The kuibit refinement is not centered on the manual answer.
+Kuibit 1.6.1 applies `exp(1j*pi*p)` to its phase parameter `p`; we preserve that
+implementation and record the actual rotation in radians. See the
+[package documentation](https://sbozzolo.github.io/kuibit/gw_mismatch.html).
 
-The reference is the published **kuibit 1.6.1** implementation and its
-[mismatch documentation](https://sbozzolo.github.io/kuibit/gw_mismatch.html).
-We call `mismatch_from_strains` with `TimeSeries(time, q)` for each
-already prepared signal. We pass `antenna_patterns=[(0,1),(1,0)]`;
-kuibit orders these entries as `(F_cross,F_plus)`. Both channels use
-the same noise PSD, or `noises=None` for white noise.
+## Does scaling change the answer?
 
-This explicit pair matters. A rotation preserves its summed plus/cross
-norm exactly. Kuibit normalizes with the unrotated waveforms; for a
-single projected channel that norm need not remain constant as its
-complex input is rotated. We avoid that ambiguity by specifying the
-polarization pair, rather than accepting the default antenna factors.
-For a pure (2,2) comparison, a constant mode phase and a polarization
-rotation are degenerate, which is the restriction stated by kuibit.
-This setup should not be generalized to arbitrary mixtures of modes
-without revisiting the alignment definition.
+A constant amplitude factor on either waveform cancels in its normalized overlap.
+For **white noise**, a common time-unit conversion also cancels when the band and
+allowed shifts are converted consistently. Here both initial BH masses are
+0.05 in code units, so expressing both signals in `t/M_BH` and `r*h/M_BH` was a
+common change of units. The new direct-code-unit calculation confirms the same
+mismatch; it does not assume the BH has mass 0.05 solar masses.
 
-One version-specific detail is recorded explicitly: kuibit 1.6.1 builds
-its parameter `p` on `[0,2*pi]` but actually rotates the signal by
-`exp(1j*pi*p)`. We do not modify the library. The same-grid manual
-comparison uses those actual rotations, and JSON records both the
-returned parameter and the physical rotation in radians. Do not read
-the returned parameter alone as our waveform phase.
+A detector-shaped PSD is different. Assigning a physical mass changes where the
+frequencies fall in that PSD, so the detector-weighted mismatch can change.
+There is no unique detector-weighted answer until that physical scale and PSD
+are specified. The optional CE comparison at 50 solar masses, z=0 gives
+manual **0.8279063399**, kuibit **0.8279064782**. It requires an explicit
+`--mass 50`; it is not used in the default native-unit result.
 
-The first kuibit run searches 257 times over the full interval
-\([-3561.78049,+3561.78049]M_{\rm BH}\), including zero, and 128 phase
-parameters. Its own best time centers a second search with 257 times
-and 256 phase parameters. The refinement is not centered on the
-manual answer. For each search the manual method also evaluates
-exactly kuibit's grids. If their mismatches differ by more than
-\(10^{-9}\), the diagnostic fails instead of publishing agreement.
+The factors of four, FFT sample spacing and common frequency-bin measure cancel
+between numerator and norms. A constant PSD/antenna-response multiplier cancels
+too. There is no additional factor of 1/5. A mismatch near 0.79 means low normalized
+match for these signals and choices, not a 79% numerical error in a simulation.
 
-The white-noise manual optimum is at \(\Delta\tau\simeq2.67782\), well
-inside the search interval. Positive lag means comparing A1 with
-\(q_3(\tau-\Delta\tau)\). Inspect JSON and the overlap-versus-lag plot
-before interpreting any other case; a boundary maximum or an
-unresolved sharp peak requires a wider/finer search.
+## Run and inspect
 
-## Detector weighting
-
-White noise gives a scale-free waveform-shape comparison. For a detector
-PSD, assign both modes the same source-frame initial BH mass and redshift:
-\[
-t_{\rm obs}=\tau\,(1+z)\frac{GM_{\rm BH}}{c^3},\qquad
-f_{\rm obs}=\frac{f_\tau}{(1+z)GM_{\rm BH}/c^3}.
-\]
-The optional detector variant uses the existing `effective_detector_asd`
-curve squared, not an ASD as though it were a PSD. The common band is
-intersected with the configured detector band and tabulated support.
-For CE at 50 solar masses and zero redshift it is 5 to 1711.9856 Hz.
-Constant response multipliers cancel in the normalized result; the PSD's
-frequency dependence does not. Luminosity distance only multiplies a
-strain amplitude and therefore cancels at fixed redshift. Changing the
-redshift still changes which part of a detector's PSD weights the signal.
-
-Kuibit receives that same PSD sampled at the exact positive FFT bins in
-both channels. The manual method evaluates it at absolute frequencies.
-This avoids introducing different PSD interpolation conventions in the
-two methods. This is still a polarization-pair mode mismatch with a
-detector-shaped weighting, not a sky-averaged detector-network inference.
-
-## Reproduce and inspect
-
-This diagnostic is registered as `gw_mismatch` and excluded from default
-`run_wip.py`/`run_all.py` runs. It never regenerates caches or modifies
-simulation ASCII. On Anvil, use the normal Python/TeX environment:
+In the normal Anvil Python environment:
 
 ```bash
 python run_wip.py gw_mismatch
-python -m wip_plots.gw_mismatch --detector ce --mass 50
+python gw_mismatch.py --no-plot
+# Choose another pair, preserving the requested order:
+python gw_mismatch.py --sims A2 A3 --radius-index 6
+# Explicitly assign a physical scale only for this detector-weighted variant:
+python gw_mismatch.py --detector ce --mass 50
 ```
 
-Locally, the optional published dependency can be provided without
-changing the core environment's dependency list:
+Locally, provide kuibit using the usual project environment or
+`uv run --with kuibit==1.6.1 python gw_mismatch.py --no-plot`.
 
-```bash
-uv run --with kuibit==1.6.1 python -m wip_plots.gw_mismatch --no-plot
-uv run --with kuibit==1.6.1 python -m unittest tests.test_gw_mismatch
-# More time and phase samples, in a separate output folder:
-uv run --with kuibit==1.6.1 python -m wip_plots.gw_mismatch \
-  --num-times 513 --num-phases 256 --tag white_finer --no-plot
-```
+For normal edits, change `SIM_NAMES`, `RADIUS_INDEX`, `START_TIME`, `END_TIME`,
+the taper or band at the top of `gw_mismatch.py`. The `analyze` function shows
+the sequence explicitly. `ManualOverlap` contains the Fourier sums;
+`kuibit_check` contains the package call; `plot_comparison` contains the figure.
+Keep these methods on the same prepared signals when extending the comparison.
 
-`--no-plot` saves the numerical results without requiring local TeX.
-`--cache-root PATH` selects an isolated cache snapshot with the usual
-`A1_psi49` / `A3_psi49` layout. Outputs live under
-`figures/wip/gw_mismatch/white/` or `ce/` (or the explicit `--tag`):
+From another computer, copy `rhphc.dat` and `strain_cache.json` for each chosen
+case/radius from Anvil into `gw_work/<case>_psi4<label>/`, or point
+`--cache-root` at that tree. For A/B cases, parfile index 6 means raw file label
+7, hence `A1_psi47`, for example. No raw simulation files are needed here.
+The diagnostic is excluded from default all-plot runs.
 
-- `A1_A3.json`: settings, cache manifests/hashes, implementation hashes,
-  kuibit version/source hash, both grid comparisons and optimized result.
-- `A1_A3_inputs.npz`: the exact preprocessed complex inputs and lag curve,
-  allowing a colleague to check the overlap without our cache reader.
-- `A1_A3.pdf` and `A1_A3.png`: finite normalized waveforms above and
-  phase-maximized overlap versus time shift below, with both grid results.
+Outputs live in `figures/wip/gw_mismatch/white/` (or `ce/`): a PDF/PNG comparison,
+`A1_A3.json` with choices, hashes and both methods' results, and
+`A1_A3_inputs.npz` containing the exact prepared complex signals, `time_code`,
+`lags_code` and the overlap curve. NPZ time starts at zero; the original interval
+start is recorded as `selection.start` in JSON. Schema version 2 uses generic
+time-shift fields in code units. Previous schema-1 outputs used M_BH units.
+Display amplitude normalization in the waveform panel does not change the
+mismatch calculation. `--start`, `--end`, `--fmin`, `--fmax` and `--shift-limit`
+now all use **code time or inverse code time**, as appropriate.
 
-The upper-panel amplitude normalization is for display only. It is not
-an additional rescaling applied to the mismatch. The two methods share
-input preparation so that they test the overlap calculation, rather
-than accidentally comparing different physical intervals.
-
-Focused tests check identical/scaled/rotated modes, a known non-circular
-time delay, orthogonal FFT-bin signals, PSD scaling, exchange symmetry,
-common-interval padding, invalid inputs, real public-kuibit agreement
-for white and colored PSDs, and explicit opt-in registration.
-
-To compare with another calculation, agree on waveform quantity,
-polarizations/modes, radius, mass/time normalization, time interval,
-window/demeaning, PSD/band and allowed shifts first. Two implementations
-agreeing on these inputs validates this numerical overlap calculation;
-it does not make mismatch independent of those choices.
+Tests cover known shifts/rotations, identical and orthogonal signals, PSD scaling,
+exchange symmetry, common-unit invariance, and agreement with the real package.
+For a different pair, filenames and NPZ waveform keys follow those case names;
+the default A1/A3 filenames are unchanged.

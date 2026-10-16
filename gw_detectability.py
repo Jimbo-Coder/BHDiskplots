@@ -1,29 +1,17 @@
-"""Finite-signal detectability: the human seven-step workflow in one place.
+#!/usr/bin/env python3
+"""Measured GW detectability and the combined Wessel-style figure.
 
-1. Read the selected r*Psi4 modes on their matching retarded-time grid.
-2. Tukey-window and FFT; reconstruct the two polarizations with spin -2 Y_lm.
-3. Take the solid-angle mean (or RMS) of the polarization amplitude.
-4. Divide by (2*pi*f)^2 and form h_c = 2*f*abs(h_tilde).
-5. Read detector PSD/ASD and form h_n = sqrt(f*S_n).
-6. Apply source BH mass, redshift and luminosity-distance scaling.
-7. Integrate SNR and solve for the chosen detection threshold.
+Run: python gw_detectability.py --radius-index 6
 
-Moore, Cole & Berry (2014), equations 16-21:
-https://arxiv.org/html/1408.0740v2#S2.SS2
-Wessel et al., Sections III.3-III.5 (transients, polarization and detectors):
-https://arxiv.org/abs/2011.04077
-The window, retained interval, source-orientation average and detector response
-are additional choices; Moore's amplitude definitions do not prescribe them.
-The production path uses no radial extrapolation, synthetic tail or FFI.
-The separate Wessel trial below tests a mass-driven tail on cached FFI strain.
-The optional time-on chart differentiates that analytic model back to Psi4;
-it never replaces the direct-Psi4 measured baseline with an FFI spectrum.
-Formatting and all figure creation live in wip_plots/gw_detectability_all.py.
+Edit the scientific choices in section 1 and the appearance in section 4.
+Read this file in order: settings and cache readers; the spectral/
+detector calculation; the complete workflow; then plotting and formatting.
+The command-line options are at the bottom. Optional continuation fits
+and validation sweeps live in gw_detectability_extras.py.
 
-The reusable spectral object is normalized by the configured initial
-central-BH mass scale: tau=t/M_BH and q=r*h/M_BH. A target source-frame BH
-mass and cosmological redshift are applied only when constructing an observed
-waveform.  The total ADM mass is intentionally absent from these conversions.
+The default uses measured rPsi4, with no FFI or synthetic continuation.
+Units: tau=t/M_BH, q=r*h/M_BH, p=M_BH*r*Psi4=d^2q/dtau^2.
+Conventions and derivations: notes/gw_paper_methods.md.
 """
 from __future__ import annotations
 
@@ -37,136 +25,64 @@ from math import factorial
 from typing import Mapping
 
 import numpy as np
-from gw import MODES as CACHED_MODES, mode_columns, read_strain_cache, strain_cache_dir
+from gw import MODES as CACHED_MODES, mode_columns, strain_cache_dir
 
 
-# ANALYSIS CHOICES: edit this block, not the functions below.
-# Reviewed on 2026-09-11 for six disks at the fixed test targets in the notes.
-# Example masses are fixed; distances follow the best-case detector threshold.
-# See the measured
-# sensitivity table in notes/KNOWLEDGE.md; these are not universal error bounds.
-# Window/time/frequency bounds below refer to the default four-mode subset.
-# Simulation paths and mass/orbit metadata stay in config.py.
-
-# 1. Observable and extraction sphere.
-# Deliberately the non-axisymmetric quadrupole subset, NOT total GW emission.
-# Adding (2,0) changes SNR by factors 20-164: its origin is not established,
-# so exclusion is an explicit scope choice, not a claim to remove only noise.
-SIM_NAMES = ("A1", "A2", "A3")  # Detectability figures; other workflows keep A/B.
-MODES = ((2, 2), (2, 1), (2, -2), (2, -1))  # Or "all" for every cached mode (ell=2..4).
-FIRST_RADIUS_INDEX = config.GW_FIRST_WAVEZONE_PARFILE_INDEX
+# 1. SETTINGS AND INPUTS
+# Index 6 is Psi4_rad.mon.7 for the A cases. No extrapolation is applied.
+SIM_NAMES = ("A1", "A2", "A3")
 OUTER_RADIUS_INDEX = config.GW_OUTERMOST_PARFILE_INDEX
-# Use the outer finite sphere as the central result, inner/intermediate as
-# checks. Radius changes still shift SNR appreciably; no justified infinity fit
-# exists here. Keep the measured finite signal; do not invent a decaying tail.
-
-# 2. Retained time and Tukey window before FFT.
-# Remove t_ret<0, then this duration from the first arrived sample. Wessel
-# Sec. III.5 motivates 1000 M_BH by initial relaxation; 500-1500 changes our
-# tested SNRs by <=3.2%. This is a sensitivity check, not proof all junk is gone.
+FIRST_RADIUS_INDEX = config.GW_FIRST_WAVEZONE_PARFILE_INDEX  # Optional radius checks.
+MODES = ((2, 2), (2, 1), (2, -2), (2, -1))  # (2,0) is deliberately excluded.
 TRANSIENT_CUTOFF_MBH = 1000.0
-# Symmetric 5% taper (2.5% at each end), as in the collaborator's script.
-# Avoid discarding more measured signal without evidence: alpha=.02-.10
-# changes SNR by -15.0% to +8.0%; alpha=.20 suppresses it by up to 27.2%.
 TAPER_ALPHA = 0.05
-
-# 3. Polarization amplitude sqrt((|FFT(Re)|^2+|FFT(Im)|^2)/2), then solid-angle
-# mean. This follows the collaborator's observable; "rms" is also available.
-# Mean-spectrum SNR is NOT an orientation-averaged SNR (RMS raises it 5-7%).
-# The optional direction comparison uses Wessel's fixed (theta,phi)=(pi/2.34,0).
-SOURCE_AVERAGING = "mean"
-
-# 4. Direct Psi4/(2*pi*f)^2 -> h_c=2*f*|h_tilde| (Moore Eqs. 16-21).
-# Reject DC and the first few poorly resolved cycles: f_min=3/duration.
-# Provisional: reducing 3 to 1 changes SNR <=3.2%, but raising it to 6 lowers
-# CE SNR by up to 35.5%. Do not call the low-frequency band converged.
-# Keep all remaining positive FFT bins below Nyquist, with no extra high-pass,
-# low-pass, detrending or amplitude-based trimming in the SNR calculation.
 LOW_FREQUENCY_CYCLES = 3.0
-
-# 5. Noise model and integration support in observed Hz, NOT source cutoffs.
-# Input quantities are explicit. With Eq. 8 h_res, the sky/polarization-averaged
-# response of a right-angle interferometer is (2/5) h_res^2: instrument ASD
-# times sqrt(5/2). Equivalently, put sqrt(2/5) on h_res and use the raw ASD.
-# Wessel footnote 4 describes a different averaged-curve convention; the
-# published numerical SNRs cannot be inferred from that footnote alone.
-# Same effective noise for plots and SNR; see effective_detector_asd.
+SOURCE_AVERAGING = "mean"  # Mean amplitude; not an orientation-averaged SNR.
 ACTIVE_DETECTORS = ("ligo", "et", "ce", "decigo", "lisa")
-DETECTOR_CURVE_DIR = config.REPOSITORY_ROOT / "detector_curves"
-DETECTOR_TABLES = {
-    "ligo": ("AplusDesign.txt", "asd", 1),
-    "et": ("ET10kmcolumns.txt", "psd", 3),  # CoBA 2023, 90-degree equivalent.
-    "ce": ("CE2_40km_strain.txt", "asd", 1),
-    "lisa": ("LISA_Alloc_Sh.txt", "psd", 1),
-}  # DECIGO uses the analytic Yagi-Seto Eq. (5) below.
-DETECTOR_BOUNDS = {
-    "ligo": (5.0, 2.5e3), "et": (1.0, 1.0e4), "ce": (5.0, 5.0e3),
-    "decigo": (1.0e-2, 10.0), "lisa": (1.0e-4, 1.0),
-}
-
-# 6. Illustrative sources: (detector band, source M_BH/Msun, D_L/Mpc).
-# None selects the largest SNR=8 distance among the plotted cases in that band.
-# All four examples sit on their uppermost detector reach curves, following
-# Wessel Fig. 10, at the fixed source masses below, ordered by increasing mass.
-# These are illustrative rescalings, not known sources or rate forecasts.
-# Rescale using the initial BH mass, NOT ADM mass: f_obs ~ 1/[M_BH(1+z)].
-EXAMPLE_TARGETS = (
-    ("ce", 10.0, None),  # Illustrative NS-BH formation scale, not a merger waveform.
-    ("ce", 50.0, None),
-    ("decigo", 1.0e3, None),
-    ("lisa", 1.0e5, None),
-)
-# Fixed reference scale from Shibata et al. (2021), arXiv:2101.05440.
-# Not GW190521's inferred parameters or a waveform/model fit to that event.
-SHIBATA_BH_MASS_MSUN = 50.0
-SHIBATA_DISTANCE_MPC = 100.0
-# Retained flat matter+Lambda approximation; no radiation/neutrino evolution.
-# These Planck18 parameter values do NOT make this the full Planck18 model.
-COSMOLOGY_H0_KM_S_MPC = 67.66
-COSMOLOGY_OMEGA_M = 0.30966
-
-# 7. SNR^2 = integral (h_c/h_n)^2 d ln f; conventional threshold as in Wessel.
-# Report a threshold distance for the selected observable, not a rate or a
-# total-signal detection guarantee. Horizon masses/redshifts are search bounds.
 SNR_THRESHOLD = 8.0
-HORIZON_MASS_RANGE_MSUN = (1.0, 1.0e7)
-HORIZON_REDSHIFT_MAX = 10.0
+# (detector, initial BH mass in solar masses, distance in Mpc).
+# None means solve the largest SNR=8 distance among the plotted cases.
+EXAMPLE_TARGETS = (
+    ("ce", 10., None),
+    ("ce", 50., None),
+    ("decigo", 1.e3, None),
+    ("lisa", 1.e5, None),
+)
 
-# Numerical resolution and comparison choices.
-ZERO_PAD_FACTOR = 2.0  # Denser frequency sampling, not longer physical duration.
-THETA_NODES, PHI_NODES = 24, 48  # Halving both changes tested SNRs by <0.02%.
-HORIZON_MASS_SAMPLES = 44
-HORIZON_REDSHIFT_SAMPLES = 64
-HORIZON_SPECTRAL_BINS = 2048  # Tested SNR differs from full-grid integral by <1%.
-VALIDATION_RADIUS_INDICES = (FIRST_RADIUS_INDEX, 7, OUTER_RADIUS_INDEX)
-VALIDATION_TAPER_ALPHAS = (0.02, TAPER_ALPHA, 0.10)
-VALIDATION_TRANSIENT_CUTOFFS_MBH = (500.0, TRANSIENT_CUTOFF_MBH, 1500.0)
-VALIDATION_COARSE_ANGULAR_GRID = (12, 24)
+# Numerical resolution. These control accuracy/cost, not signal duration.
+ZERO_PAD_FACTOR = 2.0
+THETA_NODES, PHI_NODES = 24, 48
+HORIZON_MASS_RANGE_MSUN = (1., 1.e7)
+HORIZON_REDSHIFT_MAX = 10.
+HORIZON_MASS_SAMPLES, HORIZON_REDSHIFT_SAMPLES = 44, 64
+HORIZON_SPECTRAL_BINS = 2048
 
-# Optional Wessel Eq. (10) trial, separate from the direct-Psi4 results above.
-# Only complex (2,2); no inferred negative-m partner or other-mode tails.
-# These fit-window/acceptance choices are ours, not prescribed by the paper.
-TAIL_MASS_SOURCE = "horizon_flux"  # Or "outside_mass" for the original Wessel-like fit.
-# Flux proxy = initial outside-AH M0 minus recorded cumulative inward rest-mass
-# flux. This neglects non-AH losses/sources and is NOT a BH-energy measurement.
-TAIL_FIT_START_FRACTION = 0.60  # Last 40% of retained measured strain.
-TAIL_WINDOW_FRACTIONS = (0.40, 0.50, 0.60, 0.70, 0.80)  # Report sensitivity; never pick the best fit.
-TAIL_HOLDOUT_FRACTION = 0.25  # Withhold last quarter of that interval, then refit.
-TAIL_REMAINING_MASS_FRACTION = 0.10  # Wessel: 90% of initial disk mass accreted.
-TAIL_JOIN_ORBITS, TAIL_TAPER_ORBITS = 1.0, 3.0
-TAIL_FIT_LIMITS = dict(mass=0.01, amplitude=0.25, phase=0.5, holdout=0.5)
-# Fractional RMS errors except phase (radians); not statistical confidence.
-TAIL_MAX_SAMPLES = 2_000_000  # Abort, never shorten a tail silently.
-# Explicit conditional example, NOT a validated prediction. A1 has a persistent
-# late m=1 structure and positive fitted mass decay, but a poor coherent fit.
-# Retain/report those waveform failures; never waive mass or sampling checks.
-TAIL_REVIEW_CASES = ("A1",)  # Empty tuple disables conditional examples.
-
-
+# Physical constants and the flat matter+Lambda cosmology used for D_L(z).
 SECONDS_PER_M_SUN = 4.92549095e-6
 METERS_PER_M_SUN = 1476.6250385
 METERS_PER_MPC = 3.085677581491367e22
 LIGHT_SPEED_KM_S = 299792.458
+COSMOLOGY_H0_KM_S_MPC = 67.66
+COSMOLOGY_OMEGA_M = 0.30966
+
+# Fixed source used only by the optional reference-comparison figure.
+SHIBATA_BH_MASS_MSUN, SHIBATA_DISTANCE_MPC = 50., 100.
+
+# Input tables: filename, ASD or PSD, and zero-based column after frequency.
+DETECTOR_CURVE_DIR = config.REPOSITORY_ROOT / "detector_curves"
+DETECTOR_TABLES = {
+    "ligo": ("AplusDesign.txt", "asd", 1),
+    "et": ("ET10kmcolumns.txt", "psd", 3),
+    "ce": ("CE2_40km_strain.txt", "asd", 1),
+    "lisa": ("LISA_Alloc_Sh.txt", "psd", 1),
+}
+DETECTOR_BOUNDS = {  # Observed Hz.
+    "ligo": (5., 2500.),
+    "et": (1., 1.e4),
+    "ce": (5., 5000.),
+    "decigo": (.01, 10.),
+    "lisa": (1.e-4, 1.),
+}
 
 
 @dataclass(frozen=True)
@@ -225,83 +141,6 @@ class DetectabilityResult:
     shibata: ObservedTarget
 
 
-def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True,
-            radius_index=None, cache_root=None, strict=False):
-    """Run steps 1-7; return numerical results, without creating any figures."""
-    print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
-          f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
-          f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, no tail", flush=True)
-    # Steps 1-4: modes -> windowed FFT -> angular average -> dimensionless strain.
-    radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
-    sources, representative = source_spectra(
-        names, radius_index, compare_direction, cache_root=cache_root, strict=strict)
-    if not sources:
-        raise ValueError("No valid direct-Psi4 spectra were produced")
-    inner = source_spectra(names, FIRST_RADIUS_INDEX, cache_root=cache_root, strict=strict)[0] if compare_radius else {}
-    spectra = {name: source.spectrum for name, source in sources.items()}
-
-    # Step 5: detector noise. Use exactly the same effective ASD for h_n and SNR.
-    curves = load_detector_curves()
-    noise = {}
-    for detector in active_detectors():
-        low, high = DETECTOR_BOUNDS[detector]
-        frequency = np.geomspace(low, high, 500)
-        noise[detector] = frequency, np.sqrt(frequency) * effective_detector_asd(detector, frequency, curves)
-
-    # Step 6: source choices; redshift follows the same cosmology as SNR.
-    cosmology = FlatLambdaCDM(z_max=max(12.0, HORIZON_REDSHIFT_MAX + 0.5))
-    targets = example_targets(spectra, curves, cosmology)
-
-    redshift = cosmology.redshift_at_luminosity_distance(SHIBATA_DISTANCE_MPC)
-    shibata = observed_target(spectra, SHIBATA_BH_MASS_MSUN, SHIBATA_DISTANCE_MPC,
-                             redshift, curves)
-
-    # Step 7: SNR^2 = integral (h_c/h_n)^2 d ln f; threshold luminosity distance.
-    horizons = horizon_curves(spectra, curves, cosmology) if compute_horizons else None
-    return DetectabilityResult(sources, inner, representative, noise, targets, horizons, shibata)
-
-
-def observed_target(spectra, mass, distance, redshift, curves, detector=None):
-    """Apply one shared physical source scale to every case."""
-    strain, snr = {}, {}
-    for name, spectrum in spectra.items():
-        frequency, strain_ft = observer_spectrum(spectrum, mass, distance, redshift)
-        strain[name] = frequency, characteristic_strain(frequency, strain_ft)
-        power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
-        snr[name] = {
-            detector_name: _snr_from_binned_power(power, detector_name, mass * (1 + redshift), distance, curves)
-            for detector_name in active_detectors()
-        }
-    return ObservedTarget(mass, distance, redshift, strain, snr, detector)
-
-
-def example_targets(spectra, curves, cosmology):
-    """Use refined best-case detector reaches, or explicitly fixed distances."""
-    targets = []
-    for detector, mass, distance in EXAMPLE_TARGETS:
-        if detector not in active_detectors():
-            raise ValueError(f"Example detector {detector} is not in ACTIVE_DETECTORS")
-        horizon_case = None
-        if distance is None:
-            candidates = []
-            for name, spectrum in spectra.items():
-                power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
-                z = _threshold_redshift(power, detector, mass, curves, cosmology, refine=True)
-                if np.isfinite(z):
-                    candidates.append((float(cosmology.luminosity_distance_mpc(z)), name, z))
-            if not candidates:
-                raise ValueError(f"No {detector} threshold example at {mass:g} solar masses")
-            distance, horizon_case, redshift = max(candidates)
-        else:
-            redshift = cosmology.redshift_at_luminosity_distance(distance)
-        target = observed_target(spectra, mass, distance, redshift, curves, detector)
-        if horizon_case is not None:
-            target.distance_policy = "best-case threshold"
-            target.horizon_case = horizon_case
-        targets.append(target)
-    return targets
-
-
 # 1. Read matching, uniformly sampled r*Psi4 and retarded time.
 def read_rpsi4_modes(case, radius_index, modes=None, *, cache_root=None):
     """Read only the selected cache columns, not raw radii or integrated strain.
@@ -339,38 +178,40 @@ def read_rpsi4_modes(case, radius_index, modes=None, *, cache_root=None):
     return data[:, 0], values
 
 
-def spectrum_for_case(case, time, modes, **overrides):
-    options = dict(
-        transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH, taper_alpha=TAPER_ALPHA,
-        zero_pad_factor=ZERO_PAD_FACTOR, low_frequency_cycles=LOW_FREQUENCY_CYCLES,
-        theta_nodes=THETA_NODES, phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING,
-    )
-    options.update(overrides)
-    return direct_psi4_spectrum(time, modes, case.mlittle, **options)
+@dataclass(frozen=True)
+class DetectorCurve:
+    frequency: np.ndarray
+    asd: np.ndarray
+
+def active_detectors():
+    if not ACTIVE_DETECTORS or set(ACTIVE_DETECTORS) - DETECTOR_BOUNDS.keys():
+        raise ValueError(f"Choose at least one detector from {tuple(DETECTOR_BOUNDS)}")
+    return ACTIVE_DETECTORS
+
+def _read_detector_curve(filename: str, quantity: str, column=1) -> DetectorCurve:
+    path = DETECTOR_CURVE_DIR / filename
+    raw = np.loadtxt(path, comments="#")
+    if raw.ndim == 1:
+        raw = raw.reshape(1, -1)
+    frequency = np.asarray(raw[:, 0], dtype=float)
+    values = np.asarray(raw[:, column], dtype=float)
+    keep = np.isfinite(frequency) & np.isfinite(values) & (frequency > 0.0) & (values > 0.0)
+    frequency = frequency[keep]
+    values = values[keep]
+    if frequency.size < 2:
+        raise ValueError(f"Detector curve {path} has fewer than two positive samples")
+    order = np.argsort(frequency)
+    asd = np.sqrt(values) if quantity == "psd" else values
+    return DetectorCurve(frequency[order], asd[order])
+
+def load_detector_curves():
+    return {name: _read_detector_curve(filename, quantity, column)
+            for name, (filename, quantity, column) in DETECTOR_TABLES.items()}
 
 
-def source_spectra(names=None, radius_index=OUTER_RADIUS_INDEX, representative=False, *,
-                   cache_root=None, strict=False):
-    sources, directions = {}, {}
-    for case in config.all_sim_configs(SIM_NAMES if names is None else names):
-        try:
-            time, modes = read_rpsi4_modes(case, radius_index, cache_root=cache_root)
-            spectrum, info = spectrum_for_case(case, time, modes)
-            sources[case.name] = SourceSpectrum(case, spectrum, info)
-            if representative:
-                directions[case.name] = spectrum_for_case(
-                    case, time, modes, representative_direction=(np.pi / 2.34, 0.0)
-                )[0]
-            print(f"{case.name}: radius index {radius_index}, {len(info.modes)} modes, "
-                  f"{info.samples} samples over {info.duration_mbh:.1f} M_BH", flush=True)
-        except (OSError, ValueError, KeyError) as exc:
-            if strict:
-                raise ValueError(f"{case.name}: {exc}") from exc
-            print(f"{case.name}: skipping detectability; {exc}", flush=True)
-    return sources, directions
-
-
-# 2-4. Common preprocessing, windowed FFT, polarization/orientation and strain.
+# ----------------------------------------------------------------------
+# 2. CALCULATION: time cuts -> window -> FFT -> polarization mean -> strain
+# ----------------------------------------------------------------------
 def tukey_window(size: int, alpha: float = TAPER_ALPHA) -> np.ndarray:
     """Return a symmetric Tukey window without requiring SciPy."""
     size = int(size)
@@ -534,9 +375,11 @@ def direct_psi4_spectrum(
     if not np.isfinite(bh_mass) or bh_mass <= 0.0:
         raise ValueError("bh_mass must be finite and positive")
 
+    # 1. Retain measured post-transient samples on one uniform time grid.
     time, modes = retained_psi4_modes(time, rpsi4_modes, bh_mass,
                                       transient_cutoff_mbh, trim_prearrival)
 
+    # 2. Use tau=t/M_BH and p=M_BH*r*Psi4; taper every mode identically.
     tau = (time - time[0]) / bh_mass
     dtau = float(np.median(np.diff(tau)))
     duration = float(tau[-1] - tau[0])
@@ -549,6 +392,7 @@ def direct_psi4_spectrum(
             raise ValueError("A rejected temporal trial cannot extend Psi4")
         if (2, 2) not in modes:
             raise ValueError("The continuation requires measured mode (2,2)")
+        from gw_detectability_extras import continued_psi4_mode
         extended_time, extended_psi4 = continued_psi4_mode(
             time/bh_mass, bh_mass*modes[2, 2], continuation)
         # All other modes keep exactly their measured Tukey termination. Only
@@ -565,6 +409,7 @@ def direct_psi4_spectrum(
     pad_left = padding // 2
     pad_right = padding - pad_left
     mode_data = np.pad(mode_data, ((0, 0), (pad_left, pad_right)))
+    # 3. Continuous-transform normalization: p_tilde = FFT(p) * d_tau.
     # A common window lets us FFT modes once, then reconstruct each direction.
     # This equals reconstructing in time first, without thousands of FFTs.
     mode_fft = np.fft.fft(mode_data, axis=1) * dtau
@@ -584,6 +429,7 @@ def direct_psi4_spectrum(
     positive_modes = mode_fft[:, positive_indices]
     negative_modes = mode_fft[:, negative_indices]
 
+    # 4. Reconstruct plus/cross in each source direction, then average amplitude.
     if representative_direction is None:
         theta, phi, weights = _source_directions(theta_nodes, phi_nodes)
         harmonics = _harmonic_matrix(ordered_modes, theta, phi)
@@ -612,7 +458,8 @@ def direct_psi4_spectrum(
         resolved_theta_nodes = 1
         resolved_phi_nodes = 1
 
-    # Step 4: the common division commutes with the amplitude averages above.
+    # 5. |q_tilde| = |p_tilde| / (2*pi*nu)^2. This common division commutes
+    # with the amplitude average above; it is not fixed-frequency integration.
     # The Fourier second-derivative minus sign disappears in the magnitude.
     strain_ft /= omega_squared
     spectrum = DimensionlessSpectrum(
@@ -723,40 +570,13 @@ def spin_weighted_spherical_harmonic(
     )
 
 
-# 5. Detector PSD/ASD conversion.
-@dataclass(frozen=True)
-class DetectorCurve:
-    frequency: np.ndarray
-    asd: np.ndarray
+# Detector PSD/ASD conversion and response conventions.
 
 
 @dataclass(frozen=True)
 class BinnedSpectralPower:
     frequency: np.ndarray
     power_dfrequency: np.ndarray
-
-
-def active_detectors():
-    if not ACTIVE_DETECTORS or set(ACTIVE_DETECTORS) - DETECTOR_BOUNDS.keys():
-        raise ValueError(f"Choose at least one detector from {tuple(DETECTOR_BOUNDS)}")
-    return ACTIVE_DETECTORS
-
-
-def _read_detector_curve(filename: str, quantity: str, column=1) -> DetectorCurve:
-    path = DETECTOR_CURVE_DIR / filename
-    raw = np.loadtxt(path, comments="#")
-    if raw.ndim == 1:
-        raw = raw.reshape(1, -1)
-    frequency = np.asarray(raw[:, 0], dtype=float)
-    values = np.asarray(raw[:, column], dtype=float)
-    keep = np.isfinite(frequency) & np.isfinite(values) & (frequency > 0.0) & (values > 0.0)
-    frequency = frequency[keep]
-    values = values[keep]
-    if frequency.size < 2:
-        raise ValueError(f"Detector curve {path} has fewer than two positive samples")
-    order = np.argsort(frequency)
-    asd = np.sqrt(values) if quantity == "psd" else values
-    return DetectorCurve(frequency[order], asd[order])
 
 
 def _decigo_instrument_asd(frequency) -> np.ndarray:
@@ -769,11 +589,6 @@ def _decigo_instrument_asd(frequency) -> np.ndarray:
         + 4.94e-52 * frequency ** -4
     )
     return np.sqrt(psd)
-
-
-def load_detector_curves():
-    return {name: _read_detector_curve(filename, quantity, column)
-            for name, (filename, quantity, column) in DETECTOR_TABLES.items()}
 
 
 def _log_interpolate_curve(curve: DetectorCurve, frequency) -> np.ndarray:
@@ -813,7 +628,8 @@ def effective_detector_asd(detector: str, frequency, curves) -> np.ndarray:
     raise ValueError(f"Unknown detector {detector!r}")
 
 
-# 6. Cosmology and mass/distance scaling. M_BH is not M_ADM.
+# Observer scaling: f_obs = nu / [(1+z) G M_BH/c^3]. M_BH is not M_ADM.
+
 @dataclass(frozen=True)
 class FlatLambdaCDM:
     """Small dependency-free flat-Lambda-CDM distance model.
@@ -882,7 +698,8 @@ def observer_spectrum(
     return frequency, strain_ft
 
 
-# 7. SNR integration and threshold horizons.
+# SNR integration and distance roots. Binning speeds up the mass/redshift scan.
+
 def _bin_spectral_power(spectrum: DimensionlessSpectrum, bins: int) -> BinnedSpectralPower:
     frequency = np.asarray(spectrum.frequency, dtype=float)
     power = np.square(np.abs(np.asarray(spectrum.strain_ft, dtype=complex)))
@@ -995,355 +812,543 @@ def horizon_curves(spectra, curves, cosmology):
     return masses, result
 
 
-# Numerical comparisons use the same analysis functions, never a second pipeline.
-def orbital_spectrum(case, spectrum):
-    orbital_frequency = float(case.gw_omega_orbital) * case.mlittle / (2 * np.pi)
-    if not np.isfinite(orbital_frequency) or orbital_frequency <= 0:
-        raise ValueError(f"{case.name}: positive orbital frequency is required")
-    return spectrum.frequency / orbital_frequency, characteristic_strain(spectrum.frequency, spectrum.strain_ft)
+# ----------------------------------------------------------------------
+# 3. COMPLETE WORKFLOW: cached modes -> spectra -> SNR -> distance reach
+# ----------------------------------------------------------------------
+
+def spectrum_for_case(case, time, modes, **overrides):
+    options = dict(
+        transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH, taper_alpha=TAPER_ALPHA,
+        zero_pad_factor=ZERO_PAD_FACTOR, low_frequency_cycles=LOW_FREQUENCY_CYCLES,
+        theta_nodes=THETA_NODES, phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING,
+    )
+    options.update(overrides)
+    return direct_psi4_spectrum(time, modes, case.mlittle, **options)
 
 
-def interpolated_spectral_ratio(reference_x, reference_y, test_x, test_y):
-    lower = max(float(np.min(reference_x)), float(np.min(test_x)))
-    upper = min(float(np.max(reference_x)), float(np.max(test_x)))
-    keep = ((reference_x >= lower) & (reference_x <= upper)
-            & np.isfinite(reference_y) & (reference_y > 0))
-    x = reference_x[keep]
-    return x, np.interp(x, test_x, test_y) / reference_y[keep]
+def observed_target(spectra, mass, distance, redshift, curves, detector=None):
+    """Apply one shared physical source scale to every case."""
+    strain, snr = {}, {}
+    for name, spectrum in spectra.items():
+        frequency, strain_ft = observer_spectrum(spectrum, mass, distance, redshift)
+        strain[name] = frequency, characteristic_strain(frequency, strain_ft)
+        power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
+        snr[name] = {
+            detector_name: _snr_from_binned_power(power, detector_name, mass * (1 + redshift), distance, curves)
+            for detector_name in active_detectors()
+        }
+    return ObservedTarget(mass, distance, redshift, strain, snr, detector)
 
 
-def _significant_ratio(label, baseline_x, baseline_y, x, y):
-    x, ratio = interpolated_spectral_ratio(baseline_x, baseline_y, x, y)
-    significant = (np.isfinite(ratio)
-                   & (np.interp(x, baseline_x, baseline_y) >= 1e-3 * np.max(baseline_y)))
-    if np.any(significant):
-        change = abs(ratio[significant] - 1)
-        print(f"{label}: median fractional change={np.median(change):.3g}, "
-              f"95th percentile={np.percentile(change, 95):.3g}", flush=True)
-    return x[significant], ratio[significant]
+def example_targets(spectra, curves, cosmology):
+    """Use refined best-case detector reaches, or explicitly fixed distances."""
+    targets = []
+    for detector, mass, distance in EXAMPLE_TARGETS:
+        if detector not in active_detectors():
+            raise ValueError(f"Example detector {detector} is not in ACTIVE_DETECTORS")
+        horizon_case = None
+        if distance is None:
+            candidates = []
+            for name, spectrum in spectra.items():
+                power = _bin_spectral_power(spectrum, HORIZON_SPECTRAL_BINS)
+                z = _threshold_redshift(power, detector, mass, curves, cosmology, refine=True)
+                if np.isfinite(z):
+                    candidates.append((float(cosmology.luminosity_distance_mpc(z)), name, z))
+            if not candidates:
+                raise ValueError(f"No {detector} threshold example at {mass:g} solar masses")
+            distance, horizon_case, redshift = max(candidates)
+        else:
+            redshift = cosmology.redshift_at_luminosity_distance(distance)
+        target = observed_target(spectra, mass, distance, redshift, curves, detector)
+        if horizon_case is not None:
+            target.distance_policy = "best-case threshold"
+            target.horizon_case = horizon_case
+        targets.append(target)
+    return targets
 
 
-def validation_data(sim_name):
-    """Return radius, taper and transient comparisons as arrays ready to draw."""
-    case = config.all_sim_configs([sim_name])[0]
-    time, modes = read_rpsi4_modes(case, OUTER_RADIUS_INDEX)
-    baseline, _ = spectrum_for_case(case, time, modes)
-    baseline_x, baseline_y = orbital_spectrum(case, baseline)
-    radial, tapers, cutoffs = [], [], []
-    for index in dict.fromkeys(VALIDATION_RADIUS_INDICES):
+def analyze(names=None, *, compare_radius=False, compare_direction=False, compute_horizons=True,
+            radius_index=None, cache_root=None, strict=False, include_reference=False):
+    """Run steps 1-7; return numerical results, without creating any figures."""
+    print(f"Detectability: modes={MODES}, angular {SOURCE_AVERAGING}, "
+          f"cut={TRANSIENT_CUTOFF_MBH:g} M_BH, Tukey alpha={TAPER_ALPHA:g}, "
+          f"f_min={LOW_FREQUENCY_CYCLES:g}/duration; finite radius, no tail", flush=True)
+    # Steps 1-4: modes -> windowed FFT -> angular average -> dimensionless strain.
+    radius_index = OUTER_RADIUS_INDEX if radius_index is None else radius_index
+    sources, representative = {}, {}
+    for case in config.all_sim_configs(SIM_NAMES if names is None else names):
         try:
-            if index == OUTER_RADIUS_INDEX:
-                spectrum = baseline
-            else:
-                other_time, other_modes = read_rpsi4_modes(case, index)
-                spectrum, _ = spectrum_for_case(case, other_time, other_modes)
+            # Reader: the cached columns already have a common retarded-time grid.
+            time, modes = read_rpsi4_modes(case, radius_index, cache_root=cache_root)
+            # Calculation: the function above contains the cut, window, FFT,
+            # harmonic reconstruction, angular average and -(2*pi*f)^-2 step.
+            spectrum, info = direct_psi4_spectrum(
+                time, modes, case.mlittle, transient_cutoff_mbh=TRANSIENT_CUTOFF_MBH,
+                taper_alpha=TAPER_ALPHA, zero_pad_factor=ZERO_PAD_FACTOR,
+                low_frequency_cycles=LOW_FREQUENCY_CYCLES, theta_nodes=THETA_NODES,
+                phi_nodes=PHI_NODES, averaging=SOURCE_AVERAGING)
+            sources[case.name] = SourceSpectrum(case, spectrum, info)
+            print(f"{case.name}: radius index {radius_index}, {info.samples} samples "
+                  f"over {info.duration_mbh:.1f} M_BH", flush=True)
+            if compare_direction:
+                representative[case.name] = spectrum_for_case(
+                    case, time, modes, representative_direction=(np.pi/2.34, 0.))[0]
         except (OSError, ValueError, KeyError) as exc:
-            print(f"{sim_name}: radius index {index} unavailable: {exc}", flush=True)
-            continue
-        x, y = orbital_spectrum(case, spectrum)
-        radial.append((index, x, y))
-        if index != OUTER_RADIUS_INDEX:
-            _significant_ratio(f"{sim_name} radius index {index}/outer", baseline_x, baseline_y, x, y)
+            if strict:
+                raise ValueError(f"{case.name}: {exc}") from exc
+            print(f"{case.name}: skipping detectability; {exc}", flush=True)
+    if not sources:
+        raise ValueError("No valid direct-Psi4 spectra were produced")
+    inner = {}
+    if compare_radius:
+        from gw_detectability_extras import source_spectra
+        inner = source_spectra(names, FIRST_RADIUS_INDEX, cache_root=cache_root, strict=strict)[0]
+    spectra = {name: source.spectrum for name, source in sources.items()}
 
-    for alpha in dict.fromkeys(VALIDATION_TAPER_ALPHAS):
-        spectrum = baseline if alpha == TAPER_ALPHA else spectrum_for_case(case, time, modes, taper_alpha=alpha)[0]
-        x, ratio = _significant_ratio(
-            f"{sim_name} Tukey alpha={alpha:g}/baseline", baseline_x, baseline_y, *orbital_spectrum(case, spectrum))
-        tapers.append((alpha, x, ratio))
-    for cutoff in dict.fromkeys(VALIDATION_TRANSIENT_CUTOFFS_MBH):
-        spectrum = baseline if cutoff == TRANSIENT_CUTOFF_MBH else spectrum_for_case(
-            case, time, modes, transient_cutoff_mbh=cutoff)[0]
-        x, ratio = _significant_ratio(
-            f"{sim_name} transient={cutoff:g} M_BH/baseline", baseline_x, baseline_y, *orbital_spectrum(case, spectrum))
-        cutoffs.append((cutoff, x, ratio))
-    coarse, _ = spectrum_for_case(case, time, modes,
-                                 theta_nodes=VALIDATION_COARSE_ANGULAR_GRID[0],
-                                 phi_nodes=VALIDATION_COARSE_ANGULAR_GRID[1])
-    _significant_ratio(f"{sim_name} coarse/baseline angular grid", baseline_x, baseline_y, *orbital_spectrum(case, coarse))
-    return radial, tapers, cutoffs
+    # Step 5: detector noise. Use exactly the same effective ASD for h_n and SNR.
+    curves = load_detector_curves()
+    noise = {}
+    for detector in active_detectors():
+        low, high = DETECTOR_BOUNDS[detector]
+        frequency = np.geomspace(low, high, 500)
+        noise[detector] = frequency, np.sqrt(frequency) * effective_detector_asd(detector, frequency, curves)
 
+    # Step 6: source choices; redshift follows the same cosmology as SNR.
+    cosmology = FlatLambdaCDM(z_max=max(12.0, HORIZON_REDSHIFT_MAX + 0.5))
+    targets = example_targets(spectra, curves, cosmology)
 
-# Optional Wessel trial: isolated from the production seven-step path above.
-@dataclass
-class WesselFit:
-    start: float
-    end: float
-    gamma: float
-    omega: float
-    amplitude: float
-    phase: float
-    mass_end: float
-    errors: dict
+    shibata = None
+    if include_reference:
+        redshift = cosmology.redshift_at_luminosity_distance(SHIBATA_DISTANCE_MPC)
+        shibata = observed_target(spectra, SHIBATA_BH_MASS_MSUN, SHIBATA_DISTANCE_MPC,
+                                  redshift, curves)
 
-    def strain(self, time):
-        return self.amplitude * np.exp((-self.gamma + 1j*self.omega)
-                                      * (np.asarray(time) - self.end) + 1j*self.phase)
-
-    def mass(self, time):
-        return self.mass_end * np.exp(-self.gamma * (np.asarray(time) - self.end))
+    # Step 7: SNR^2 = integral (h_c/h_n)^2 d ln f; threshold luminosity distance.
+    horizons = horizon_curves(spectra, curves, cosmology) if compute_horizons else None
+    return DetectabilityResult(sources, inner, representative, noise, targets, horizons, shibata)
 
 
-@dataclass
-class WesselTrial:
-    time: np.ndarray
-    strain: np.ndarray
-    mass_time: np.ndarray
-    mass: np.ndarray
-    initial_mass: float
-    fit: WesselFit
-    holdout_fit: WesselFit
-    holdout_error: float
-    issues: list[str]
-    extended_time: np.ndarray | None = None
-    extended_strain: np.ndarray | None = None
-    finite_spectrum: DimensionlessSpectrum | None = None
-    extended_spectrum: DimensionlessSpectrum | None = None
-    conditional: bool = False
-    density_time: np.ndarray | None = None
-    density_modes: np.ndarray | None = None
-    window_fits: tuple[WesselFit, ...] = ()
-    mass_source: str = "outside_mass"
-    orbital_period: float = 0.0
+# ----------------------------------------------------------------------
+# 4. PLOT AND FORMAT: distance panel above characteristic strain
+# ----------------------------------------------------------------------
+import shutil
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+from helpers.plot_common import savefig
+from helpers.style import (
+    apply_paper_style, apply_styles, figure_size, format_paper_axes,
+    ordered_sim_legend, COMPACT_LEGEND_KWARGS,
+)
+
+OUTPUT_FILENAME_COMBINED = "gw/gw_detectability_combined.png"
+OUTPUT_FILENAME_COMBINED_TIME_ON = "gw/gw_detectability_combined_time_on.png"
+DETECTOR_LABELS = {
+    "ligo": r"$\mathrm{LIGO\ A+}$", "ce": r"$\mathrm{Cosmic\ Explorer}$",
+    "decigo": r"$\mathrm{DECIGO}$", "lisa": r"$\mathrm{LISA\ (SciRDv1)}$",
+    "et": r"$\mathrm{ET\ (10\,km)}$",
+}
+DETECTOR_LINESTYLES = {"ligo": ":", "et": (0, (3, 1, 1, 1, 1, 1)),
+                      "ce": "-.", "decigo": "-", "lisa": "--"}
+DETECTOR_COLOR = "0.15"
+DETECTOR_CURVE_LABELS = {"ce": r"$\mathrm{CE}$", "et": r"$\mathrm{ET}$", "lisa": r"$\mathrm{LISA}$"}
+DETECTABILITY_HEIGHT = 5.4
+COMBINED_FREQUENCY_LIMITS = (5e-4, 3e2)  # Display only; full bins enter SNR.
+COMBINED_STRAIN_LIMITS = (1e-25, 1e-18)
+EXAMPLE_LABEL_STYLE = "caption"  # Wessel-style default; "inline" or "key" optional.
+EXAMPLE_KEY_HEIGHT = .7
+EXAMPLE_KEY_FONT_SIZE = 10
+CHARACTERISTIC_YLIM = (1e-25, 1e-17)
+SOURCE_LABEL_SIZE = 11
+SOURCE_LABEL_POSITIONS = {"ce": (0.76, 0.97), "decigo": (0.40, 0.97), "lisa": (0.17, 0.97)}
+HORIZON_YLIM = (1e-2, 1e4)
+HORIZON_REDSHIFT_TICKS = (0.001, 0.01, 0.05, 0.1, 0.5, 1.0)
+HORIZON_REDSHIFT_TICK_SIZE = 8
+HORIZON_LABEL_POSITIONS = {"ligo": (20, 0.018), "ce": (25, 150),
+                           "et": (150, 1.1),
+                           "decigo": (5000, 300), "lisa": (3e5, 1100)}
+
+def _scientific_label(value):
+    """Compact LaTeX number for source scales, without e-notation."""
+    if value == 0:
+        return "0"
+    mantissa, exponent = f"{value:.6e}".split("e")
+    coefficient, exponent = float(mantissa), int(exponent)
+    if exponent == 0:
+        return f"{coefficient:g}"
+    prefix = "" if coefficient == 1 else rf"{coefficient:g}\times "
+    return prefix + rf"10^{{{exponent}}}"
 
 
-def fit_wessel_mode(time, strain, mass_time, mass, start, end):
-    """Eq. (10): mass -> gamma, unwrapped phase -> omega, amplitude -> B.
-
-    All times are in M_BH, strain is r*h_22/M_BH. Fit the mass itself in
-    linear space (not log mass). Uniformly sampled waveform and scalar data
-    have equal sample weights. No absolute value or positivity bound on gamma
-    is imposed: a growing mass history must remain a failed decay hypothesis.
-    """
-    from scipy.optimize import curve_fit
-
-    wave = (time >= start) & (time <= end)
-    disk = (mass_time >= start) & (mass_time <= end)
-    if wave.sum() < 16 or disk.sum() < 16 or end <= start:
-        raise ValueError("Need at least 16 waveform and mass samples in the fit interval")
-    h, x = strain[wave], time[wave] - end
-    y, xm = mass[disk], (mass_time[disk] - end) / (end - start)
-    if np.any(y <= 0) or np.any(np.abs(h) == 0):
-        raise ValueError("Mass and complex-mode amplitude must be positive for this fit")
-    scale = np.mean(y)
-    guess = np.polyfit(xm, np.log(y / scale), 1)
-    pars, _ = curve_fit(lambda u, b, g: b * np.exp(-g*u), xm, y/scale,
-                        p0=(np.exp(guess[1]), -guess[0]), maxfev=10000)
-    mass_end, gamma = float(pars[0]*scale), float(pars[1]/(end-start))
-    phase = np.unwrap(np.angle(h))
-    omega, phase_end = np.polyfit(x, phase, 1)
-    envelope = np.exp(-gamma*x)
-    amplitude = float(np.dot(envelope, np.abs(h)) / np.dot(envelope, envelope))
-    rms = lambda a: float(np.sqrt(np.mean(np.abs(a)**2)))
-    errors = dict(mass=rms(y-mass_end*np.exp(-gamma*(mass_time[disk]-end)))/rms(y),
-                  amplitude=rms(np.abs(h)-amplitude*envelope)/rms(h),
-                  phase=rms(phase-(omega*x+phase_end)))
-    return WesselFit(float(start), float(end), gamma, float(omega), amplitude,
-                     float(phase_end), mass_end, errors)
+def _spectrum_plot_mask(frequency, values):
+    keep = np.isfinite(frequency) & np.isfinite(values) & (frequency > 0) & (values > 0)
+    if np.any(keep):
+        keep &= values >= 1e-10 * np.max(values[keep])
+    return keep
 
 
-def wessel_trial(time, strain, mass_time, mass, orbital_period, *,
-                 fit_start_fraction=TAIL_FIT_START_FRACTION,
-                 holdout_fraction=TAIL_HOLDOUT_FRACTION,
-                 allow_poor_waveform_fit=False):
-    """Fit Eq. (10), retaining diagnostics even for conditional review models.
-
-    The optional review override waives only waveform-residual limits, not
-    mass-decay or sampling checks. It must not be interpreted as validation.
-
-    Source-coordinate scalar time is compared with retarded GW source time,
-    both t/M_BH with the same simulation origin. This is the usual approximate
-    source-time identification, not a gauge-invariant time mapping.
-    """
-    time, strain = np.asarray(time, float), np.asarray(strain, complex)
-    mass_time, mass = np.asarray(mass_time, float), np.asarray(mass, float)
-    if not (0 <= fit_start_fraction < 1 and 0 < holdout_fraction < 1):
-        raise ValueError("Fit and holdout fractions must define nonempty intervals")
-    if not np.isfinite(orbital_period) or orbital_period <= 0:
-        raise ValueError("Orbital period must be finite and positive")
-    for t, y in ((time, strain), (mass_time, mass)):
-        if t.ndim != 1 or t.size < 32 or y.shape != t.shape or not np.all(np.isfinite(y)) \
-                or not np.all(np.isfinite(t)) or np.any(np.diff(t) <= 0):
-            raise ValueError("Need finite, increasing waveform and mass series")
-    if mass[0] <= 0 or time[0] < mass_time[0] or time[-1] > mass_time[-1]:
-        raise ValueError("Positive initial disk mass and scalar coverage of the waveform are required")
-    if not np.allclose(np.diff(time), np.median(np.diff(time)), rtol=1e-5):
-        raise ValueError("Use the uniformly sampled strain cache")
-    start = time[0] + fit_start_fraction*np.ptp(time)
-    holdout_start = time[-1] - holdout_fraction*(time[-1]-start)
-    fit = fit_wessel_mode(time, strain, mass_time, mass, start, time[-1])
-    held_fit = fit_wessel_mode(time, strain, mass_time, mass, start, holdout_start)
-    held = time > holdout_start
-    held_error = float(np.linalg.norm(strain[held]-held_fit.strain(time[held]))
-                       / np.linalg.norm(strain[held]))
-    issues = []
-    if fit.gamma <= 0:
-        issues.append("disk mass does not decay")
-    elif fit.gamma*(fit.end-fit.start) <= 3*fit.errors["mass"]:
-        issues.append("mass decay unresolved above fit residuals")
-    if fit.gamma*orbital_period/(2*np.pi) >= 0.1:
-        issues.append("decay is not slow compared with orbital motion")
-    if abs(fit.omega)*(fit.end-fit.start)/(2*np.pi) < 3:
-        issues.append("fewer than three fitted wave cycles")
-    if not np.isfinite(fit.errors["mass"]) or fit.errors["mass"] > TAIL_FIT_LIMITS["mass"]:
-        issues.append("mass residual exceeds trial limit")
-    blocking = bool(issues)
-    for key, error in {**fit.errors, "holdout": held_error}.items():
-        if key == "mass":
-            continue
-        if not np.isfinite(error) or error > TAIL_FIT_LIMITS[key]:
-            issues.append(f"{key} residual exceeds trial limit")
-            blocking |= not np.isfinite(error)
-    trial = WesselTrial(time, strain, mass_time, mass, float(mass[0]), fit,
-                         held_fit, held_error, issues, orbital_period=orbital_period)
-    if blocking or (issues and not allow_poor_waveform_fit):
-        return trial
-
-    # The paper does not specify a join
-    # function: quintic blending over the last orbit is our explicit choice.
-    stop = fit.end + np.log(fit.mass_end/(TAIL_REMAINING_MASS_FRACTION*mass[0]))/fit.gamma
-    join_width, taper_width = TAIL_JOIN_ORBITS*orbital_period, TAIL_TAPER_ORBITS*orbital_period
-    dt = float(np.median(np.diff(time)))
-    count = int(np.ceil((stop+taper_width-time[0])/dt)) + 1
-    if stop <= fit.end or fit.end-join_width < fit.start:
-        issues.append("no future mass threshold or insufficient join interval")
-        return trial
-    if count > TAIL_MAX_SAMPLES:
-        issues.append("tail exceeds sample budget; no truncated substitute")
-        return trial
-    extended_time = time[0] + dt*np.arange(count)
-    extended = fit.strain(extended_time)
-    blend = np.clip((time-(fit.end-join_width))/join_width, 0, 1)
-    blend = blend**3*(10-15*blend+6*blend**2)
-    extended[:time.size] = (1-blend)*strain + blend*extended[:time.size]
-    taper = np.clip((extended_time-stop)/taper_width, 0, 1)
-    extended *= 1-taper**3*(10-15*taper+6*taper**2)
-    trial.extended_time, trial.extended_strain = extended_time, extended
-    # Identical FFI input, FFT grid and measured-duration frequency floor.
-    # Only the termination differs. Keep the onset taper's physical width
-    # fixed; a full-length Tukey would re-window the measured signal.
-    off_window = tukey_window(time.size, TAPER_ALPHA)
-    on_window = np.ones(count)
-    half = time.size//2
-    on_window[:half] = off_window[:half]
-    nfft = int(np.ceil(ZERO_PAD_FACTOR*count))
-    floor = LOW_FREQUENCY_CYCLES/np.ptp(time)
-    trial.finite_spectrum = _single_22_spectrum(strain*off_window, dt, nfft, floor)
-    trial.extended_spectrum = _single_22_spectrum(extended*on_window, dt, nfft, floor)
-    trial.conditional = bool(issues)
-    return trial
+def example_source_info(result):
+    """Actual source scales and largest SNR across cases and plotted detectors."""
+    examples = []
+    for index, target in enumerate(result.targets):
+        candidates = [(float(snr), name, detector)
+                      for name, detectors in target.snr.items()
+                      for detector, snr in detectors.items() if np.isfinite(snr)]
+        snr, name, detector = max(candidates)
+        band_snr, band_case = max((float(values[target.detector]), name)
+                                  for name, values in target.snr.items())
+        examples.append(dict(label=chr(ord("a") + index), mass_msun=target.mass,
+                             distance_mpc=target.distance, redshift=target.redshift,
+                             max_snr=snr, case=name, detector=detector,
+                             band_detector=target.detector,
+                             band_snr=band_snr, band_case=band_case,
+                             distance_policy=getattr(target, "distance_policy", "fixed"),
+                             horizon_case=getattr(target, "horizon_case", None)))
+    return examples
 
 
-def _single_22_spectrum(strain, dt, nfft, frequency_floor):
-    """Same polarization/orientation statistic as production, for one mode.
-
-    For a single mode the angular factor separates exactly, avoiding a large
-    direction-by-frequency array for long tails. No extra 1/f^2: this is h.
-    """
-    fft = np.fft.fft(strain, n=nfft)*dt
-    freq = np.fft.fftfreq(nfft, dt)
-    pos = np.flatnonzero((freq > 0) & (freq >= frequency_floor))
-    theta, phi, weights = _source_directions(THETA_NODES, PHI_NODES)
-    harmonics = np.abs(_harmonic_matrix(((2, 2),), theta, phi)[:, 0])
-    if SOURCE_AVERAGING == "mean":
-        factor = weights @ harmonics
-    elif SOURCE_AVERAGING == "rms":
-        factor = np.sqrt(weights @ harmonics**2)
+def _example_caption(examples, note=None):
+    details = []
+    for row in examples:
+        mass = _scientific_label(row["mass_msun"])
+        distance = _scientific_label(row["distance_mpc"])
+        detector = DETECTOR_CURVE_LABELS.get(row["detector"], DETECTOR_LABELS[row["detector"]])
+        details.append(
+            rf'({row["label"]}) $M_{{\rm BH}}={mass}\,M_\odot$, '
+            rf'$D_L={distance}\,{{\rm Mpc}}$, $z={row["redshift"]:.4g}$, '
+            rf'$\rho_{{\max}}={row["max_snr"]:.3g}$ '
+            rf'({row["case"]}, {detector})')
+    caption = (
+        r"\caption{Top: SNR-threshold luminosity-distance reach versus source-frame "
+        r"initial BH mass, with redshift on the right axis. Bottom: source-direction "
+        r"mean characteristic strain $\langle h_c(f)\rangle$ for four illustrative "
+        r"source scales and the corresponding effective detector characteristic "
+        r"noise $h_n^{\mathrm{eff}}(f)=\sqrt{f S_n^{\mathrm{eff}}(f)}$. Colours identify the "
+        r"simulation cases in both panels; line styles identify the detectors "
+        r"in the distance curves and characteristic-noise curves using the same key. "
+        r"The crosses in the distance panel and letter labels in the strain panel "
+        r"refer to the same example sources: " + "; ".join(details) + ". "
+        r"Each reported SNR is the largest among the plotted simulation cases and "
+        r"detectors, using the selected-mode source-direction mean-amplitude "
+        r"spectrum. Each example lies on the uppermost SNR=8 reach curve "
+        r"at its fixed source mass, ordered from low to high mass: CE for "
+        r"(a) and (b), DECIGO for (c), and LISA for (d). Distances are solved "
+        r"using the same cosmology and "
+        r"source-direction mean-amplitude statistic as the plotted reaches. "
+        r"Example (a) uses a $10\,M_\odot$ BH as an illustrative BH--NS "
+        r"remnant scale, not a simulated merger waveform. ")
+    for row in examples:
+        if row["band_detector"] != row["detector"]:
+            detector = DETECTOR_CURVE_LABELS.get(
+                row["band_detector"], DETECTOR_LABELS[row["band_detector"]])
+            caption += (rf'For example ({row["label"]}), the largest SNR in '
+                        + detector + r' is $' + f'{row["band_snr"]:.3g}' + '$. ')
+    if note:
+        caption += "The continuation shown here is conditional; " + note.replace("\n", "; ") + ". "
     else:
-        raise ValueError(f"Unknown source averaging {SOURCE_AVERAGING}")
-    amplitude = 0.5*factor*np.sqrt(np.abs(fft[pos])**2+np.abs(fft[(-pos)%nfft])**2)
-    return DimensionlessSpectrum(freq[pos], amplitude, f"source-direction {SOURCE_AVERAGING}")
+        caption += "Only the measured finite-duration signal is used. "
+    return caption + "}\n"
 
 
-def disk_mass_for_tail(scalar, source):
-    """Outside-AH mass or a flux-only remaining-rest-mass estimate.
-
-    bhns.don columns 2/3 are total/inside-AH M0; column 13 is the recorded
-    positive cumulative inward flux. Subtract its initial offset, not abs().
-    Fitting M0(0)-F(t) to an exponential is equivalent to fitting the implied
-    accumulated flux M0(0)-B exp(-gamma*t), with the initial mass fixed.
-    """
-    scalar = np.asarray(scalar, float)
-    outside = scalar[:, 1]-scalar[:, 2]
-    if source == "outside_mass":
-        mass = outside
-    elif source == "horizon_flux":
-        mass = outside[0]-(scalar[:, 12]-scalar[0, 12])
-    else:
-        raise ValueError("TAIL_MASS_SOURCE must be horizon_flux or outside_mass")
-    if not np.all(np.isfinite(mass)) or np.any(mass <= 0):
-        raise ValueError("Temporal mass history must remain finite and positive")
-    return mass
-
-
-def continued_psi4_mode(time, psi4, trial):
-    """Continue p=M_BH*r*Psi4 using q''=lambda^2*q, q=r*h/M_BH.
-
-    The Wessel strain model supplies lambda=-gamma+i*omega. Analytic
-    differentiation is exact for that MODEL, not validation of the data fit.
-    Blend measured p into model p over the last orbit; taper p at the same
-    mass threshold as the strain trial. These join/window choices are ours.
-    The measured direct-Psi4 baseline never uses this routine.
-    """
-    time, psi4 = np.asarray(time), np.asarray(psi4)
-    dt = float(np.median(np.diff(time)))
-    # Join at the measured Psi4 end; allow for one sample of grid rounding.
-    if trial.extended_time is None or abs(time[-1]-trial.fit.end) > 1.5*dt:
-        raise ValueError("Psi4 and temporal trial endpoints differ by more than one sample")
-    orbital_period = trial.orbital_period
-    if orbital_period <= 0:
-        raise ValueError("A positive orbital period is required for the continuation")
-    stop = trial.fit.end+np.log(trial.fit.mass_end/
-           (TAIL_REMAINING_MASS_FRACTION*trial.initial_mass))/trial.fit.gamma
-    end = stop+TAIL_TAPER_ORBITS*orbital_period
-    count = int(np.ceil((end-time[0])/dt))+1
-    if count > TAIL_MAX_SAMPLES:
-        raise ValueError("Psi4 tail exceeds the sample budget")
-    extended_time = time[0]+dt*np.arange(count)
-    lam = -trial.fit.gamma+1j*trial.fit.omega
-    extended = lam**2*trial.fit.strain(extended_time)
-    blend = np.clip((time-(time[-1]-TAIL_JOIN_ORBITS*orbital_period))/
-                    (TAIL_JOIN_ORBITS*orbital_period), 0, 1)
-    blend = blend**3*(10-15*blend+6*blend**2)
-    extended[:len(time)] = (1-blend)*psi4+blend*extended[:len(time)]
-    taper = np.clip((extended_time-stop)/(TAIL_TAPER_ORBITS*orbital_period), 0, 1)
-    extended *= 1-taper**3*(10-15*taper+6*taper**2)
-    return extended_time, extended
+def _example_key(ax, examples):
+    columns = ["Example", r"$M_{\rm BH}/M_\odot$", r"$D_L\,[{\rm Mpc}]$",
+               r"$z$", r"$\rho_{\rm band}$", "Case", "Detector"]
+    rows = [[f'({row["label"]})', '$' + _scientific_label(row["mass_msun"]) + '$',
+             '$' + _scientific_label(row["distance_mpc"]) + '$',
+             f'{row["redshift"]:.4g}', f'{row["band_snr"]:.3g}', row["band_case"],
+             DETECTOR_CURVE_LABELS.get(row["band_detector"], DETECTOR_LABELS[row["band_detector"]])]
+            for row in examples]
+    ax.set_axis_off()
+    table = ax.table(cellText=rows, colLabels=columns, cellLoc="center",
+                     colWidths=[.11, .18, .18, .13, .13, .1, .17], bbox=[0, 0, 1, 1])
+    table.auto_set_font_size(False)
+    table.set_fontsize(EXAMPLE_KEY_FONT_SIZE)
+    for (row, column), cell in table.get_celld().items():
+        cell.set_edgecolor("0.65")
+        cell.set_linewidth(.5)
+        if row == 0:
+            cell.set_facecolor("0.95")
 
 
-def temporal_trial_for_case(case):
-    """Reuse the existing GW cache and restart-aware scalar reader; no raw writes."""
-    from helpers.reader import DiskSim
+def _format_axes(axes):
+    for ax in np.asarray(axes).flat:
+        ax.set_xscale("log")
+        ax.grid(False, which="minor")
+        ax.grid(True, which="major")
+        format_paper_axes(ax)
 
-    label = str(OUTER_RADIUS_INDEX + case.gw_psi4_file_index_offset)
-    cached = read_strain_cache(strain_cache_dir(case, label), case.data_path/"Psi4_rad.mon")
-    if cached.backend != "python" or str(cached.metadata.get("source_label")) != label \
-            or not np.isclose(cached.metadata.get("madm", np.nan), case.gw_madm, rtol=1e-10, atol=0):
-        raise ValueError(f"{case.name}: regenerate inconsistent strain cache")
-    hp, hc = cached.hplus_hcross(2, 2)
-    time = cached.time/case.mlittle
-    # Undo the legacy Fortran conjugation for the natural spin -2 complex mode.
-    strain = (hp-1j*hc)/case.mlittle
-    sim = DiskSim(case)
-    _, scalar, mass_time, _ = sim.loaddata("bhns.don")
-    disk_mass = disk_mass_for_tail(scalar, TAIL_MASS_SOURCE)
-    mass_time = mass_time/case.mlittle
-    if mass_time[0] != 0:
-        raise ValueError(f"{case.name}: initial disk mass at t=0 is unavailable")
-    # Stop at the last measured Psi4 sample; later FFI rows integrate zero fill.
-    measured_end = read_rpsi4_modes(case, OUTER_RADIUS_INDEX, ((2, 2),))[0][-1]/case.mlittle
-    keep = ((time >= TRANSIENT_CUTOFF_MBH) & (time >= mass_time[0]) & (time <= mass_time[-1])
-            & (time <= measured_end + 1e-9))
-    trial = wessel_trial(time[keep], strain[keep], mass_time, disk_mass, case.Pc/case.mlittle,
-                         allow_poor_waveform_fit=case.name in TAIL_REVIEW_CASES)
-    trial.mass_source = TAIL_MASS_SOURCE
-    sim.load_modes()
-    valid = (sim.modes[:, 0].real > 0) & np.all(np.isfinite(sim.modes), axis=1)
-    trial.density_time = sim.modes_t[valid]/case.mlittle
-    trial.density_modes = np.abs(sim.modes[valid, 1:])/np.abs(sim.modes[valid, :1])
-    # C0 is density-cut in the Illinois diagnostic, unlike the full M0 integral.
-    # Use C1/C0 to assess structure, never substitute C0 for disk rest mass.
-    trial.window_fits = tuple(
-        fit_wessel_mode(trial.time, trial.strain, mass_time, disk_mass,
-                        trial.time[0]+fraction*np.ptp(trial.time), trial.time[-1])
-        for fraction in TAIL_WINDOW_FRACTIONS)
-    return trial
+
+def _draw_characteristic_strain(ax, result, *, fixed_source=False, note=None,
+                                legend=True, example_labels="scales"):
+    targets = [result.shibata] if fixed_source else result.targets
+    examples = example_source_info(result) if example_labels != "scales" else None
+    for index, target in enumerate(targets):
+        for name, (frequency, hc) in target.strain.items():
+            source = result.sources[name]
+            keep = _spectrum_plot_mask(frequency, hc)
+            ax.plot(frequency[keep], hc[keep], color=source.color,
+                    linestyle=source.linestyle, label=source.legend_name if index == 0 else "_nolegend_")
+            print(f"{name}, M_BH={target.mass:g} Msun, D_L={target.distance:g} Mpc: "
+                  + ", ".join(f"{detector.upper()} SNR={snr:.3g}" for detector, snr in target.snr[name].items()))
+        mass_text = _scientific_label(target.mass)
+        distance_text = _scientific_label(target.distance)
+        position = SOURCE_LABEL_POSITIONS["ce"] if fixed_source else SOURCE_LABEL_POSITIONS[target.detector]
+        if not fixed_source and target.detector == "ce" and target.mass == 10:
+            position = (.92, .75)
+        text = (rf"$M_{{\mathrm{{BH}}}}={mass_text}\,M_\odot$" + "\n"
+                + rf"$D_L={distance_text}\,\mathrm{{Mpc}}$")
+        size = SOURCE_LABEL_SIZE
+        alignment = "top"
+        if example_labels == "inline":
+            row = examples[index]
+            detector = DETECTOR_CURVE_LABELS.get(row["detector"], DETECTOR_LABELS[row["detector"]])
+            text = (rf'$({row["label"]})\quad M_{{\rm BH}}={mass_text}\,M_\odot$' + "\n"
+                    + rf"$D_L={distance_text}\,\mathrm{{Mpc}}$" + "\n"
+                    + rf'$z={target.redshift:.4g}$' + "\n"
+                    + rf'$\rho_{{\max}}={row["max_snr"]:.3g}$'
+                    + f' ({row["case"]}, {detector})')
+            # Keep the full information on the figure, above the data region.
+            # The inline layout reserves a larger gap between the two panels.
+            ax.text(*position, rf'$({row["label"]})$', transform=ax.transAxes,
+                    ha="center", va="top", fontsize=SOURCE_LABEL_SIZE)
+            position = {"ce": (.69, 1.04), "decigo": (.40, 1.04), "lisa": (.12, 1.04)}[target.detector]
+            if target.detector == "ce" and target.mass == 10:
+                position = (.94, 1.04)
+            alignment = "bottom"
+            size = 9
+        elif example_labels in {"caption", "key"}:
+            text = rf'$({examples[index]["label"]})$'
+            # Place each letter next to its best in-band SNR contribution.
+            frequency, hc = target.strain[examples[index]["band_case"]]
+            noise_f, noise_h = result.noise[target.detector]
+            keep = _spectrum_plot_mask(frequency, hc)
+            keep &= (frequency >= noise_f[0]) & (frequency <= noise_f[-1])
+            if np.any(keep):
+                f, h = frequency[keep], hc[keep]
+                hn = np.exp(np.interp(np.log(f), np.log(noise_f), np.log(noise_h)))
+                peak = int(np.argmax(h / hn))
+                ax.annotate(text, (f[peak], h[peak]), xytext=(3, 12),
+                            textcoords="offset points", ha="center", va="bottom",
+                            fontsize=10)
+                continue
+        ax.text(*position, text, transform=ax.transAxes,
+                ha="center", va=alignment, fontsize=size)
+    for detector, (frequency, hn) in result.noise.items():
+        ax.plot(frequency, hn, color=DETECTOR_COLOR, linewidth=1.25,
+                linestyle=DETECTOR_LINESTYLES[detector], label="_nolegend_")
+    ax.set(xlabel=r"$f_{\mathrm{obs}}\,[\mathrm{Hz}]$", ylabel=r"$\langle h_c(f)\rangle$",
+           yscale="log", ylim=CHARACTERISTIC_YLIM,
+           xlim=(min(f[0] for f, _ in result.noise.values()), max(f[-1] for f, _ in result.noise.values())))
+    _format_axes([ax])
+    if legend:
+        ordered_sim_legend(ax, ncols=3, loc="lower left", **COMPACT_LEGEND_KWARGS)
+    if note:
+        ax.text(.98, .04, note, transform=ax.transAxes, ha="right", va="bottom",
+                fontsize=SOURCE_LABEL_SIZE)
+
+
+def _draw_horizon(ax, result, *, note=None, legend=True):
+    masses, horizons = result.horizons
+    for index, (detector, cases) in enumerate(horizons.items()):
+        for name, horizon in cases.items():
+            source = result.sources[name]
+            ax.plot(masses, horizon, color=source.color,
+                    linestyle=DETECTOR_LINESTYLES[detector],
+                    label=source.legend_name if index == 0 else "_nolegend_")
+        label = DETECTOR_CURVE_LABELS.get(detector, DETECTOR_LABELS[detector])
+        ax.text(*HORIZON_LABEL_POSITIONS[detector], label, ha="center", va="bottom",
+                fontsize=SOURCE_LABEL_SIZE, color=DETECTOR_COLOR)
+    ax.set(xlabel=r"$M_{\mathrm{BH}}\,[M_\odot]$", ylabel=r"$D_L\,[\mathrm{Mpc}]$",
+           yscale="log", xlim=(masses[0], masses[-1]), ylim=HORIZON_YLIM)
+    ax.text(0.97, 0.96, rf"$\mathrm{{SNR}}={SNR_THRESHOLD:g}$",
+            transform=ax.transAxes, ha="right", va="top", fontsize=SOURCE_LABEL_SIZE)
+    _format_axes([ax])
+    cosmology = FlatLambdaCDM()
+    redshift_axis = ax.secondary_yaxis(
+        "right", functions=(cosmology.redshift_at_luminosity_distance,
+                            cosmology.luminosity_distance_mpc))
+    redshift_axis.set_ylabel(r"$z$")
+    redshift_axis.yaxis.set_major_locator(FixedLocator(HORIZON_REDSHIFT_TICKS))
+    redshift_axis.yaxis.set_major_formatter(
+        FuncFormatter(lambda z, _: rf"${z:g}$"))
+    redshift_axis.yaxis.set_minor_locator(NullLocator())
+    redshift_axis.tick_params(axis="y", which="both", direction="in",
+                              left=False, right=True, labelleft=False, labelright=True,
+                              labelsize=HORIZON_REDSHIFT_TICK_SIZE)
+    redshift_axis.grid(False, which="both")
+    # The right edge represents redshift, not mirrored distance ticks.
+    ax.tick_params(axis="y", which="both", right=False)
+    if legend:
+        ordered_sim_legend(ax, ncols=3, loc="upper left", **COMPACT_LEGEND_KWARGS)
+    if note:
+        ax.text(.03, .83, note, transform=ax.transAxes, ha="left", va="top",
+                fontsize=SOURCE_LABEL_SIZE)
+
+
+def plot_combined(result, args, *, filename=OUTPUT_FILENAME_COMBINED, note=None,
+                        example_labels=EXAMPLE_LABEL_STYLE, write_metadata=True):
+    """Distance above characteristic strain, following Wessel Fig. 10's layout."""
+    if example_labels not in {"inline", "caption", "key"}:
+        raise ValueError("Choose inline, caption, or key example labels")
+    examples = example_source_info(result)
+    extra_rows = max(0, len(examples) - 3)
+    height = DETECTABILITY_HEIGHT + (EXAMPLE_KEY_HEIGHT + .18 * extra_rows
+                                    if example_labels == "key" else 0)
+    fig, axes = plt.subplots(2, 1, figsize=figure_size("double", height),
+                             gridspec_kw={"height_ratios": (1.5, 1)})
+    _draw_horizon(axes[0], result, legend=False)
+    for row in examples:
+        axes[0].plot(row["mass_msun"], row["distance_mpc"], marker="+",
+                     color="black", markersize=7, markeredgewidth=1.1,
+                     linestyle="none", zorder=5)
+        offset = (5, -14)
+        if row["band_detector"] == "ce":
+            offset = (-16, 6) if row["mass_msun"] == 10 else (5, 5)
+        axes[0].annotate(rf'$({row["label"]})$', (row["mass_msun"], row["distance_mpc"]),
+                         xytext=offset, textcoords="offset points", fontsize=10)
+    _draw_characteristic_strain(axes[1], result, legend=False, example_labels=example_labels)
+    axes[1].set(xlim=COMBINED_FREQUENCY_LIMITS, ylim=COMBINED_STRAIN_LIMITS)
+    # Scale typography and strokes to these deliberately short panels.
+    for ax in axes:
+        ax.xaxis.label.set_fontsize(11)
+        ax.yaxis.label.set_fontsize(11)
+        ax.tick_params(which="major", labelsize=9, length=4, width=.8, pad=3)
+        ax.tick_params(which="minor", length=2, width=.6)
+        ax.grid(True, which="major", linewidth=.5, color="0.75")
+        ax.grid(True, which="minor", linewidth=.3, color="0.88")
+        for spine in ax.spines.values():
+            spine.set_linewidth(.8)
+        for line in ax.lines:
+            line.set_linewidth(1.05)
+        for text in ax.texts:
+            text.set_fontsize(9)
+    for secondary in axes[0].child_axes:
+        secondary.yaxis.label.set_fontsize(11)
+        secondary.tick_params(which="major", labelsize=HORIZON_REDSHIFT_TICK_SIZE,
+                              length=4, width=.8, pad=3)
+        for spine in secondary.spines.values():
+            spine.set_linewidth(.8)
+    # Both lower-panel quantities share the same dimensionless amplitude scale.
+    noise_axis = axes[1].secondary_yaxis("right")
+    noise_axis.set_ylabel(r"$h_n^{\mathrm{eff}}(f)$", fontsize=11, labelpad=6)
+    noise_axis.yaxis.set_major_locator(NullLocator())
+    noise_axis.yaxis.set_minor_locator(NullLocator())
+    noise_axis.spines["right"].set_linewidth(.8)
+    axes[1].tick_params(axis="y", which="both", right=False)
+    # Keep both keys outside the data, in one compact horizontal strip.
+    bottom = .13
+    gap = .42 if note else .32
+    top = .97
+    if example_labels == "key":
+        bottom = .23 + .02 * extra_rows
+    elif example_labels == "inline":
+        gap = .66
+        top = .90
+    fig.subplots_adjust(left=.11, right=.89, bottom=bottom, top=top, hspace=gap)
+    lower_top = axes[1].get_position().y1
+    legend_offset = .26 if note and example_labels != "key" else .10
+    legend_y = lower_top + legend_offset / height
+    if example_labels == "inline":
+        legend_y = .96
+    if note and example_labels in {"key", "inline"}:
+        fig.text(.13, .008, note.replace("\n", "; "), ha="left", va="bottom", fontsize=9)
+    elif note:
+        fig.text(.50, lower_top + .10/height, note.replace("\n", "; "),
+                 ha="center", va="center", fontsize=8)
+    case_handles = [Line2D([], [], color=source.color, linestyle=source.linestyle,
+                           label=source.legend_name) for source in result.sources.values()]
+    fig.legend(handles=case_handles, ncols=len(case_handles),
+               loc="center left", bbox_to_anchor=(.11, legend_y),
+               fontsize=9, handlelength=1.3, columnspacing=.7, handletextpad=.4,
+               borderaxespad=0, borderpad=0, frameon=False)
+    detector_handles = [Line2D([], [], color=DETECTOR_COLOR, linestyle=DETECTOR_LINESTYLES[d],
+                               linewidth=1.05,
+                               label=DETECTOR_CURVE_LABELS.get(d, DETECTOR_LABELS[d]))
+                        for d in result.noise]
+    fig.legend(handles=detector_handles, ncols=len(detector_handles),
+               loc="center right", bbox_to_anchor=(.89, legend_y),
+               fontsize=9, handlelength=1.8, columnspacing=.7, handletextpad=.4,
+               borderaxespad=0, borderpad=0, frameon=False)
+    if example_labels == "key":
+        key_axis = fig.add_axes([.12, .035, .86, .11 + .02 * extra_rows])
+        _example_key(key_axis, examples)
+    if not args.no_save:
+        path = Path(args.outdir) / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Preserve the requested full-page 7-inch width in both exports.
+        with plt.rc_context({"savefig.bbox": None}):
+            fig.savefig(path.with_suffix(".pdf"))
+        if write_metadata:
+            path.with_name(path.stem + "_examples.json").write_text(json.dumps(examples, indent=2) + "\n")
+            path.with_name(path.stem + "_caption.tex").write_text(_example_caption(examples, note))
+    with plt.rc_context({"savefig.bbox": None}):
+        savefig(fig, args, filename)
+    if not args.no_save and filename in {OUTPUT_FILENAME_COMBINED, OUTPUT_FILENAME_COMBINED_TIME_ON}:
+        # Keep related variants together and preserve existing paper-facing paths.
+        variant = "conditional" if filename == OUTPUT_FILENAME_COMBINED_TIME_ON else "measured"
+        family = Path(args.outdir) / "gw" / "detectability"
+        family.mkdir(parents=True, exist_ok=True)
+        suffixes = [".png", ".pdf"] + (["_caption.tex", "_examples.json"] if write_metadata else [])
+        for suffix in suffixes:
+            shutil.copyfile(path.with_name(path.stem + suffix), family / (variant + suffix))
+
+
+# Command-line options are kept here so they do not obscure the workflow above.
+def main(argv=None):
+    import argparse
+    p = argparse.ArgumentParser(description="Measured GW spectra, SNR=8 reach and combined figure.")
+    p.add_argument("--sims", nargs="+", default=list(SIM_NAMES))
+    p.add_argument("--outdir", type=Path, default=config.PLOTS_DIR)
+    p.add_argument("--show", action="store_true")
+    p.add_argument("--no-save", action="store_true")
+    p.add_argument("--radius-index", type=int, choices=range(9), default=OUTER_RADIUS_INDEX,
+                   help="Zero-based parfile extraction index (0-8); A-case file label = index + 1")
+    p.add_argument("--cache-dir", type=Path, default=config.GW_WORK_ROOT,
+                   help="Directory containing A1_psi4*, A2_psi4*, A3_psi4* caches")
+    p.add_argument("--example-labels", choices=("caption", "key", "inline"), default=EXAMPLE_LABEL_STYLE)
+    args = p.parse_args(argv)
+
+    # 1. Check and print the actual inputs before attempting any expensive work.
+    cases = config.all_sim_configs(args.sims)
+    unknown = set(name.upper() for name in args.sims) - {case.name for case in cases}
+    if unknown:
+        p.error("Unknown simulation(s): " + ", ".join(sorted(unknown)))
+    inputs = []
+    for case in cases:
+        label = args.radius_index + case.gw_psi4_file_index_offset
+        folder = args.cache_dir / f"{case.name}_psi4{label}"
+        inputs.append(dict(case=case.name, radius_index=args.radius_index,
+                           psi4_file_label=label, cache=str(folder.resolve())))
+        print(f"{case.name}: parfile index {args.radius_index} -> Psi4_rad.mon.{label} -> {folder}", flush=True)
+        for name in ("rpsi4_uniform.dat", "strain_cache.json"):
+            if not (folder/name).is_file():
+                p.error(f"Missing {folder/name}. GW caches are not included in GitHub. "
+                        "Copy the selected caches from Anvil or use --cache-dir PATH. "
+                        "See notes/run_combined_gw_plot.md.")
+
+    # 2. Compute measured spectra and SNR=8 reaches at THIS extraction radius.
+    #    No tail fits, other radii, scalar data, or ancillary plots are requested.
+    try:
+        result = analyze(args.sims, radius_index=args.radius_index,
+                                  cache_root=args.cache_dir, strict=True)
+    except (OSError, ValueError, KeyError) as exc:
+        p.error(str(exc))
+    apply_styles(list(result.sources.values()))
+
+    # 3. Apply the usual TeX/Palatino style and draw the existing polished layout.
+    apply_paper_style()
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    filename = f"gw/detectability/radius_{args.radius_index}.png"
+    plot_combined(result, args, filename=filename, example_labels=args.example_labels)
+
+    # 4. Save the radius/input list alongside the figure, caption and example SNRs.
+    if not args.no_save:
+        path = args.outdir / filename
+        path.with_name(path.stem+"_inputs.json").write_text(json.dumps(inputs, indent=2)+"\n")
+        print(f"Figure: {path.resolve()} (and .pdf)", flush=True)
+        print(f"Caption and source parameters: {path.with_suffix('').resolve()}_caption.tex / _examples.json", flush=True)
+    return result
+
+
+if __name__ == "__main__":
+    main()

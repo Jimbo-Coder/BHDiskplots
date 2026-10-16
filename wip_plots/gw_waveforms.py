@@ -1,4 +1,11 @@
-"""Combined Psi4, strain, and ML-difference figures. Run with run_wip.py."""
+"""Cached Psi4, strain, and ML-difference figures.
+
+Run: python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
+
+Read settings first, then waveform() for the actual data preparation, then
+plotting. The batch/individual commands and CLI overrides are at the bottom.
+The default keeps all existing waveform families and comparison radii.
+"""
 from pathlib import Path
 import sys
 
@@ -16,15 +23,8 @@ from config import (
     all_sim_configs,
 )
 from gw import GWRun, load_gw_sims, names_with_massless, same_loaded_radius, subtract_waveforms, read_difference
-from helpers.gw_units import (
-    add_gw_time_secondary_axis, gw_time_values, gw_time_xlabel,
-    normalize_rpsi4, normalize_strain, normalize_rpsi4_by_disk_mass,
-    normalize_strain_by_disk_mass, rpsi4_ylabel, strain_ylabel,
-    difference_rpsi4_ylabel, difference_strain_ylabel,
-    loaded_radius_label, loaded_radius_tag,
-    rpsi4_multimode_ylabel, strain_multimode_ylabel,
-    extraction_radius_label,
-)
+from helpers import gw_units as units
+
 from helpers.plot_common import parser, savefig, save_individual_fig, setup
 from helpers.style import (
     GW_LEGEND_KWARGS, PAPER_TWO_PANEL_HEIGHT, figure_size,
@@ -32,7 +32,8 @@ from helpers.style import (
     interpanel_legend, INTERPANEL_LEGEND_INSET, FIGURE_LEGEND_BORDERAXESPAD,
 )
 
-# Data selection lives in config.py. These are plot-only presentation settings.
+# Default cases/modes/radii and units live in config.py. CLI overrides are at
+# the bottom; these settings control only appearance and output names.
 TIME_XMIN = 0.0
 TIME_XMAX_PAD = 1.08
 SUBPLOT_MARGINS = {"left": 0.18, "right": 0.96, "bottom": 0.12, "top": 0.86}
@@ -57,61 +58,59 @@ def selected_modes(value):
     return tuple(tuple(int(part) for part in mode) for mode in value)
 
 
-def psi4_series(sim, mode):
-    values = sim.psi4.psi4(*mode, multiply_by_r=True)
-    n = min(sim.rh_t.size, values.size)
-    values = normalize_rpsi4(values[:n], sim)
-    return sim.rh_t[:n], values.real, np.abs(values)
-
-
-def strain_series(sim, mode):
-    hp, hc = sim.strain_result.hplus_hcross(*mode)
-    return sim.rh_t, normalize_strain(hp, sim), normalize_strain(hc, sim)
-
-
-def psi4_difference_series(sim, reference, mode):
-    residual = subtract_waveforms(
-        sim.rh_t, sim.psi4.psi4(*mode, multiply_by_r=True),
-        reference.rh_t, reference.psi4.psi4(*mode, multiply_by_r=True),
-    )
-    if residual is None:
-        return None
-    time, values = residual
-    values = normalize_rpsi4_by_disk_mass(values, sim)
-    return time, values.real, np.abs(values)
-
-
-def strain_difference_series(sim, reference, mode):
-    hp, hc = sim.strain_result.hplus_hcross(*mode)
-    ref_hp, ref_hc = reference.strain_result.hplus_hcross(*mode)
-    residual = subtract_waveforms(sim.rh_t, hp + 1j * hc,
-                                  reference.rh_t, ref_hp + 1j * ref_hc)
-    if residual is None:
-        return None
-    time, values = residual
-    values = normalize_strain_by_disk_mass(values, sim)
-    return time, values.real, values.imag
-
-
-def integrated_difference_series(sim, result, mode):
-    hp, hc = result.hplus_hcross(*mode)
-    return result.time, normalize_strain_by_disk_mass(hp, sim), normalize_strain_by_disk_mass(hc, sim)
-
-
+# 1. DATA PREPARATION: select columns, align/subtract if needed, then normalize.
 def waveform(sim, mode, kind, reference=None, difference_result=None):
-    """Select an explicit data path; the drawing code is shared."""
+    """Return (time, upper-panel values, lower-panel values) from cached arrays.
+
+    With GW_NORMALIZE_BY_M enabled, Psi4 uses M_BH*r*Psi4 and strain uses
+    r*h/M_BH. Difference curves instead use the initial disk mass, keeping
+    subtraction after FFI distinct from FFI of the Psi4 difference. Shared
+    unit functions also supply the axis labels for these same conventions.
+    """
     if kind == "psi4":
-        return psi4_series(sim, mode)
+        values = sim.psi4.psi4(*mode, multiply_by_r=True)
+        count = min(sim.rh_t.size, values.size)
+        values = units.normalize_rpsi4(values[:count], sim)
+        return sim.rh_t[:count], values.real, np.abs(values)
+
     if kind == "strain":
-        return strain_series(sim, mode)
+        hp, hc = sim.strain_result.hplus_hcross(*mode)
+        return sim.rh_t, units.normalize_strain(hp, sim), units.normalize_strain(hc, sim)
+
     if kind == "psi4_minus_ml":
-        return psi4_difference_series(sim, reference, mode)
+        residual = subtract_waveforms(
+            sim.rh_t, sim.psi4.psi4(*mode, multiply_by_r=True),
+            reference.rh_t, reference.psi4.psi4(*mode, multiply_by_r=True),
+        )
+        if residual is None:
+            return None
+        time, values = residual
+        values = units.normalize_rpsi4_by_disk_mass(values, sim)
+        return time, values.real, np.abs(values)
+
     if kind == "strain_minus_ml":
-        return strain_difference_series(sim, reference, mode)
+        hp, hc = sim.strain_result.hplus_hcross(*mode)
+        ref_hp, ref_hc = reference.strain_result.hplus_hcross(*mode)
+        # Pack the two real channels together for the same time interpolation.
+        residual = subtract_waveforms(
+            sim.rh_t, hp + 1j * hc, reference.rh_t, ref_hp + 1j * ref_hc)
+        if residual is None:
+            return None
+        time, values = residual
+        values = units.normalize_strain_by_disk_mass(values, sim)
+        return time, values.real, values.imag
+
     if kind == "strain_from_psi4_minus_ml":
-        return integrated_difference_series(sim, difference_result, mode)
+        # This cache was made by integrating the Psi4 difference, not by
+        # subtracting the two separately integrated strains above.
+        hp, hc = difference_result.hplus_hcross(*mode)
+        return (difference_result.time, units.normalize_strain_by_disk_mass(hp, sim),
+                units.normalize_strain_by_disk_mass(hc, sim))
+
     raise ValueError(f"Unknown waveform plot {kind!r}")
 
+
+# 2. PLOT AND FORMAT: combined cases, then individual radius/mode comparisons.
 
 def plot(sims, mode, parfile_index, kind, difference_results=None):
     is_difference = kind not in ("psi4", "strain")
@@ -138,7 +137,7 @@ def plot(sims, mode, parfile_index, kind, difference_results=None):
             print(f"{sim.config.name}: no usable common waveform interval; skipping")
             continue
         time, top, bottom = data
-        x = gw_time_values(time, sim)
+        x = units.gw_time_values(time, sim)
         final_times.append(x[-1])
         top_values.append(top)
         bottom_values.append(bottom)
@@ -151,20 +150,20 @@ def plot(sims, mode, parfile_index, kind, difference_results=None):
     ell, emm = mode
     mode_text = f"{ell}{emm}"
     if is_difference:
-        title = rf"$({ell},{emm})$; {loaded_radius_label(reference, parfile_index)}; "
+        title = rf"$({ell},{emm})$; {units.loaded_radius_label(reference, parfile_index)}; "
         title += r"strain from disk-ML $\Psi_4$" if kind == "strain_from_psi4_minus_ml" else "disk-ML"
-        label = difference_rpsi4_ylabel if is_psi4 else difference_strain_ylabel
+        label = units.difference_rpsi4_ylabel if is_psi4 else units.difference_strain_ylabel
     else:
-        title = rf"$(\ell,m)=({ell},{emm})$; {extraction_radius_label(sims[0])}"
-        label = rpsi4_ylabel if is_psi4 else strain_ylabel
+        title = rf"$(\ell,m)=({ell},{emm})$; {units.extraction_radius_label(sims[0])}"
+        label = units.rpsi4_ylabel if is_psi4 else units.strain_ylabel
     axes[0].set_title(title)
     label_kwargs = {"source": r"\Delta\Psi_4"} if kind == "strain_from_psi4_minus_ml" else {}
     for ax, component in zip(axes, ("real", "abs") if is_psi4 else ("plus", "cross")):
         ax.set_ylabel(label(component, mode_text, **label_kwargs))
         ax.grid()
         ax.tick_params(axis="x", top=True, which="both")
-    axes[1].set_xlabel(gw_time_xlabel())
-    add_gw_time_secondary_axis(axes[0])
+    axes[1].set_xlabel(units.gw_time_xlabel())
+    units.add_gw_time_secondary_axis(axes[0])
     axes[0].set_xlim(TIME_XMIN, TIME_XMAX_PAD * max(final_times))
     if not is_psi4:
         set_symmetric_gw_ticks([axes[0]], top_values)
@@ -175,37 +174,6 @@ def plot(sims, mode, parfile_index, kind, difference_results=None):
     ordered_sim_interpanel_legend(fig, axes[1], axes, ncols=3,
                                  x=SUBPLOT_MARGINS["left"], **GW_LEGEND_KWARGS)
     return fig
-
-
-def main(argv=None, kinds=None):
-    args = parser(__doc__).parse_args(argv)
-    setup(args)
-    kinds = tuple(OUTPUTS) if kinds is None else tuple(kinds)
-    if any(kind not in OUTPUTS for kind in kinds):
-        raise ValueError(f"Choose waveform plots from {tuple(OUTPUTS)}")
-    modes = selected_modes(GW_PLOT_MODES)
-    names = names_with_massless(args.sims) if any(k not in ("psi4", "strain") for k in kinds) else args.sims
-    for radius in GW_COMPARISON_PARFILE_INDICES:
-        sims = load_gw_sims(names=names, psi4_parfile_index=radius)
-        if not sims:
-            continue
-        reference = next((s for s in sims if s.config.name == MASSLESS_SIM_NAME), None)
-        differences = {}
-        if "strain_from_psi4_minus_ml" in kinds and reference is not None:
-            for sim in sims:
-                if sim is reference or not same_loaded_radius(sim, reference):
-                    continue
-                try:
-                    differences[sim.config.name] = read_difference(sim, reference)
-                except (OSError, RuntimeError, ValueError) as exc:
-                    print(f"{sim.config.name}: missing difference cache: {exc}")
-        for kind in kinds:
-            for mode in modes:
-                fig = plot(sims, mode, radius, kind, differences)
-                if fig is not None:
-                    label_sim = sims[0] if kind in ("psi4", "strain") else reference
-                    savefig(fig, args, OUTPUTS[kind].format(
-                        mode=mode_tag(mode), radius=loaded_radius_tag(label_sim, radius)))
 
 
 def _positive_ticks(ax, values, ticks=3):
@@ -242,8 +210,8 @@ def plot_individual(radii, kind, multimode=False):
             continue
         side = "right" if multimode and mode in GW_MULTIMODE_RIGHT_MODES else "left"
         target_axes = right_axes if side == "right" else axes
-        label = rf"$({mode[0]},{mode[1]})$" if multimode else extraction_radius_label(sim)
-        x = gw_time_values(time, sim)
+        label = rf"$({mode[0]},{mode[1]})$" if multimode else units.extraction_radius_label(sim)
+        x = units.gw_time_values(time, sim)
         final_times.append(x[-1])
         for j, (ax, y) in enumerate(zip(target_axes, (top, bottom))):
             line, = ax.plot(x, y, label=label, color=COLORS[i % len(COLORS)])
@@ -257,20 +225,20 @@ def plot_individual(radii, kind, multimode=False):
 
     components = ("real", "abs") if is_psi4 else ("plus", "cross")
     if multimode:
-        label_fn = rpsi4_multimode_ylabel if is_psi4 else strain_multimode_ylabel
+        label_fn = units.rpsi4_multimode_ylabel if is_psi4 else units.strain_multimode_ylabel
         for axis_group, group in ((axes, GW_MULTIMODE_LEFT_MODES), (right_axes, GW_MULTIMODE_RIGHT_MODES)):
             group_label = "$" + ",".join(f"({ell},{emm})" for ell, emm in group) + "$"
             for ax, component in zip(axis_group, components):
                 ax.set_ylabel(label_fn(component) + "\n" + group_label)
-        title = extraction_radius_label(sim)
+        title = units.extraction_radius_label(sim)
         title += "; modes " + ", ".join(f"({ell},{emm})" for ell, emm in GW_MULTIMODE_PLOT_MODES)
     else:
-        label_fn = rpsi4_ylabel if is_psi4 else strain_ylabel
+        label_fn = units.rpsi4_ylabel if is_psi4 else units.strain_ylabel
         for ax, component in zip(axes, components):
             ax.set_ylabel(label_fn(component, f"{PSI4_MODE[0]}{PSI4_MODE[1]}"))
         title = rf"$(\ell,m)=({PSI4_MODE[0]},{PSI4_MODE[1]})$; " + ", ".join(labels)
     axes[0].set_title(f"{sim.config.name}: {title}")
-    axes[1].set_xlabel(gw_time_xlabel())
+    axes[1].set_xlabel(units.gw_time_xlabel())
     for ax in axes:
         ax.grid()
         ax.tick_params(axis="x", top=True, which="both")
@@ -278,7 +246,7 @@ def plot_individual(radii, kind, multimode=False):
         ax.grid(False)
         ax.tick_params(axis="both", which="both", direction="in", top=True, right=True)
         ax.tick_params(axis="x", which="both", top=False, labeltop=False)
-    add_gw_time_secondary_axis(axes[0])
+    units.add_gw_time_secondary_axis(axes[0])
     axes[0].set_xlim(TIME_XMIN, TIME_XMAX_PAD * max(final_times))
     for side, axis_group in (("left", axes), ("right", right_axes)):
         for j, ax in enumerate(axis_group):
@@ -300,6 +268,46 @@ def plot_individual(radii, kind, multimode=False):
     return fig
 
 
+# 3. COMMANDS: batch workflow, then individual-case workflow.
+def main(argv=None, kinds=None):
+    command = parser(__doc__)
+    command.add_argument("--kinds", nargs="+", choices=tuple(OUTPUTS), default=tuple(OUTPUTS),
+                         metavar="NAME", help="Choose from %(choices)s; default: all five")
+    command.add_argument("--radius-index", type=int, choices=range(9), default=None,
+                         help="One parfile extraction index; default: configured comparison radii")
+    args = command.parse_args(argv)
+    setup(args)
+    kinds = tuple(args.kinds) if kinds is None else tuple(kinds)
+    if any(kind not in OUTPUTS for kind in kinds):
+        raise ValueError(f"Choose waveform plots from {tuple(OUTPUTS)}")
+    # Read: each radius uses its own matching waveform and difference caches.
+    modes = selected_modes(GW_PLOT_MODES)
+    names = names_with_massless(args.sims) if any(k not in ("psi4", "strain") for k in kinds) else args.sims
+    radii = GW_COMPARISON_PARFILE_INDICES if args.radius_index is None else (args.radius_index,)
+    for radius in radii:
+        sims = load_gw_sims(names=names, psi4_parfile_index=radius)
+        if not sims:
+            continue
+        reference = next((s for s in sims if s.config.name == MASSLESS_SIM_NAME), None)
+        differences = {}
+        if "strain_from_psi4_minus_ml" in kinds and reference is not None:
+            for sim in sims:
+                if sim is reference or not same_loaded_radius(sim, reference):
+                    continue
+                try:
+                    differences[sim.config.name] = read_difference(sim, reference)
+                except (OSError, RuntimeError, ValueError) as exc:
+                    print(f"{sim.config.name}: missing difference cache: {exc}")
+        # Prepare, plot and save. waveform() above contains every data branch.
+        for kind in kinds:
+            for mode in modes:
+                fig = plot(sims, mode, radius, kind, differences)
+                if fig is not None:
+                    label_sim = sims[0] if kind in ("psi4", "strain") else reference
+                    savefig(fig, args, OUTPUTS[kind].format(
+                        mode=mode_tag(mode), radius=units.loaded_radius_tag(label_sim, radius)))
+
+
 def individual_main(argv=None):
     args = parser("Individual GW radius and mode comparisons.").parse_args(argv)
     setup(args)
@@ -315,7 +323,7 @@ def individual_main(argv=None):
                 radii[radius] = run.at_radius(radius)
             except (OSError, ValueError) as exc:
                 print(f"{config.name}: skipping radius index {radius}; {exc}")
-        radius_tags = [loaded_radius_tag(radii[r], r) for r in GW_COMPARISON_PARFILE_INDICES if r in radii]
+        radius_tags = [units.loaded_radius_tag(radii[r], r) for r in GW_COMPARISON_PARFILE_INDICES if r in radii]
         for multimode in (False, True):
             for kind in ("psi4", "strain"):
                 fig = plot_individual(radii, kind, multimode)
@@ -323,7 +331,7 @@ def individual_main(argv=None):
                     continue
                 if multimode:
                     modes = "_".join(mode_tag(mode) for mode in GW_MULTIMODE_PLOT_MODES)
-                    filename = f"gw_{kind}_modes_{config.name}_{modes}_{loaded_radius_tag(radii[GW_OUTERMOST_PARFILE_INDEX], GW_OUTERMOST_PARFILE_INDEX)}.png"
+                    filename = f"gw_{kind}_modes_{config.name}_{modes}_{units.loaded_radius_tag(radii[GW_OUTERMOST_PARFILE_INDEX], GW_OUTERMOST_PARFILE_INDEX)}.png"
                 else:
                     prefix = "rpsi4" if kind == "psi4" else "rhphc"
                     filename = f"{prefix}_{config.name}_{mode_tag(PSI4_MODE)}_{'-'.join(radius_tags)}.png"

@@ -23,11 +23,13 @@ MILTON_DATA_ROOT = Path("/anvil/scratch/x-ruizm/BHdisk_2025")
 SUPPLEMENTAL_DATA_ROOT = Path(
     "/anvil/projects/x-mca99s008/BHDisk_illinois_maxjamie"
 )
+SAVED_DATA_ROOT = SUPPLEMENTAL_DATA_ROOT / "saved_data"
+PERSISTENT_DATA_ROOT = SAVED_DATA_ROOT / "BHdisk_2025"
 EXTRA2D_ROOT = SUPPLEMENTAL_DATA_ROOT / "extra2d"
 # Optional persistent scalar archive target for
 # sdcalarsync/sync_scalars_to_anvil.sh. It keeps the source <sim>/ layout;
 # readers skip this root until the archive is populated.
-PERSISTENT_SCALAR_ROOT = SUPPLEMENTAL_DATA_ROOT / "jamiescalars" / "BHdisk_2025"
+PERSISTENT_SCALAR_ROOT = PERSISTENT_DATA_ROOT
 
 # Shared GW radius policy. Index 8 is the outermost valid common extraction
 # sphere and is the production default. Index 4 is the first sphere retained
@@ -234,7 +236,7 @@ DISK_SIMS = [
     DiskSimConfig(
         name="ML",
         data_roots=(
-            SUPPLEMENTAL_DATA_ROOT / "jamiescalars/bhtD2.0_fAJS0.80_000_000_q2.00_l4.00_r0.40_gamma4o3_sol_01_v2/data",
+            SAVED_DATA_ROOT / "bhtD2.0_fAJS0.80_000_000_q2.00_l4.00_r0.40_gamma4o3_sol_01_v2/data",
             MILTON_DATA_ROOT / "massless",
             PERSISTENT_SCALAR_ROOT / "massless",
         ),

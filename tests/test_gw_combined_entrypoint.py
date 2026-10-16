@@ -12,7 +12,7 @@ import numpy as np
 
 import config
 import gw_detectability as analysis
-import plot_gw_detectability as command
+import gw_detectability as command
 
 
 class CombinedEntryPointTests(unittest.TestCase):
@@ -36,24 +36,27 @@ class CombinedEntryPointTests(unittest.TestCase):
     def test_strict_mode_stops_instead_of_omitting_missing_case(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "A1.*Missing"):
-                analysis.source_spectra(["A1"], 6, cache_root=tmp, strict=True)
+                analysis.analyze(["A1"], radius_index=6, cache_root=tmp, strict=True)
 
     def test_radius_and_cache_reach_analysis_without_extra_diagnostics(self):
         spectrum = analysis.DimensionlessSpectrum(np.geomspace(.001, .1, 100), np.ones(100), "mean")
-        source = SimpleNamespace(spectrum=spectrum)
-        with mock.patch.object(analysis, "source_spectra", return_value=({"A1": source}, {})) as read, \
+        with mock.patch.object(analysis, "read_rpsi4_modes", return_value=(np.arange(10.), {})) as read, \
+                mock.patch.object(analysis, "direct_psi4_spectrum", return_value=(spectrum, SimpleNamespace(samples=10,duration_mbh=9.))), \
                 mock.patch.object(analysis, "horizon_curves", return_value="reach") as reaches, \
                 mock.patch.object(analysis, "EXAMPLE_TARGETS", (("ce", 50., 100.),)):
             result = analysis.analyze(["A1"], radius_index=6, cache_root="copied_cache", strict=True)
-        read.assert_called_once_with(["A1"], 6, False, cache_root="copied_cache", strict=True)
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(read.call_args.args[0].name, "A1")
+        self.assertEqual(read.call_args.args[1], 6)
+        self.assertEqual(read.call_args.kwargs["cache_root"], "copied_cache")
         reaches.assert_called_once()
         self.assertEqual(result.horizons, "reach")
         self.assertEqual(result.inner, {})
 
     def test_missing_cache_is_reported_before_tex_or_analysis(self):
         with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.object(command, "setup") as style, \
-                mock.patch.object(command.analysis, "analyze") as calculate, \
+                mock.patch.object(command, "apply_paper_style") as style, \
+                mock.patch.object(command, "analyze") as calculate, \
                 contextlib.redirect_stderr(io.StringIO()) as error, \
                 contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(SystemExit) as stopped:
@@ -66,18 +69,18 @@ class CombinedEntryPointTests(unittest.TestCase):
 
     def test_direct_command_plots_only_selected_radius(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for name in command.SIMULATIONS:
+            for name in command.SIM_NAMES:
                 folder = Path(tmp)/f"{name}_psi47"
                 folder.mkdir()
                 for filename in ("rpsi4_uniform.dat", "strain_cache.json"):
                     (folder/filename).touch()
             result = SimpleNamespace(sources={})
-            with mock.patch.object(command.analysis, "analyze", return_value=result) as calculate, \
-                    mock.patch.object(command, "setup"), \
+            with mock.patch.object(command, "analyze", return_value=result) as calculate, \
+                    mock.patch.object(command, "apply_paper_style"), \
                     mock.patch.object(command, "plot_combined") as draw, \
                     contextlib.redirect_stdout(io.StringIO()):
                 command.main(["--cache-dir", tmp, "--radius-index", "6", "--no-save"])
-            calculate.assert_called_once_with(list(command.SIMULATIONS), radius_index=6,
+            calculate.assert_called_once_with(list(command.SIM_NAMES), radius_index=6,
                                               cache_root=Path(tmp), strict=True)
             self.assertEqual(draw.call_args.kwargs["filename"], "gw/detectability/radius_6.png")
             self.assertEqual(draw.call_count, 1)

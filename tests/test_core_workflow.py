@@ -316,6 +316,22 @@ class RestartAndCacheTests(unittest.TestCase):
                 )
                 self.assertEqual(save.call_count, 8)
 
+    def test_waveform_command_selects_one_family_and_radius_without_ml(self):
+        from wip_plots import gw_waveforms as plots
+
+        sim = SimpleNamespace(config=SimpleNamespace(name="A1"), psi4_radius=120.)
+        with mock.patch.object(plots, "setup"), \
+                mock.patch.object(plots, "load_gw_sims", return_value=[sim]) as load, \
+                mock.patch.object(plots, "plot", return_value=mock.Mock()) as draw, \
+                mock.patch.object(plots, "savefig") as save, \
+                mock.patch.object(plots, "read_difference") as difference:
+            plots.main(["--kinds", "strain", "--radius-index", "6", "--sims", "A1", "A3"])
+        load.assert_called_once_with(names=["A1", "A3"], psi4_parfile_index=6)
+        self.assertEqual(draw.call_count, 4)
+        self.assertTrue(all(call.args[3] == "strain" for call in draw.call_args_list))
+        self.assertEqual(save.call_count, 4)
+        difference.assert_not_called()
+
     def test_known_hamiltonian_burst_is_broken_not_interpolated(self):
         from paper_plots.constraints_all import _hamiltonian_for_plot
 
@@ -588,7 +604,7 @@ class RestartAndCacheTests(unittest.TestCase):
     def test_massless_restart_is_ordered_oldest_to_newest(self):
         massless = all_sim_configs(["ml"])[0]
         self.assertEqual(len(massless.data_roots), 3)
-        self.assertIn("jamiescalars", str(massless.data_roots[0]))
+        self.assertIn("saved_data", str(massless.data_roots[0]))
         self.assertEqual(massless.data_roots[1], MILTON_DATA_ROOT / "massless")
         self.assertEqual(massless.data_roots[2], PERSISTENT_SCALAR_ROOT / "massless")
         self.assertNotIn("scratch", str(PLOTS_DIR))

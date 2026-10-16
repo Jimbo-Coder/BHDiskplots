@@ -4,9 +4,9 @@ Plotting and GW post-processing for the BHDisk simulations on Anvil.
 
 ```text
 read-only simulation data (scalars, Psi4, 2D slices)
+  -> scalar/2D readers -> paper_plots/, wip_plots/ -> figures/
   -> generate_gw.py -> gw_work/   (retarded time, uniform r*Psi4, FFI strain)
-  -> paper_plots/, wip_plots/, gw_detectability.py   (read caches only)
-  -> figures/
+       -> gw_detectability.py, gw_mismatch.py, GW plots -> figures/
 ```
 
 ## Where things live
@@ -16,7 +16,9 @@ read-only simulation data (scalars, Psi4, 2D slices)
 | `config.py` | Simulation metadata, data roots, shared units, workflow switches |
 | `gw.py` | Psi4 reading, restart merging, FFI strain, waveform caches |
 | `generate_gw.py` | The only entry point that writes the GW cache (`gw_work/`) |
-| `gw_detectability.py` | Direct-Psi4 detectability analysis; settings at the top |
+| `gw_detectability.py` | Measured GW workflow and combined figure: inputs, spectrum, SNR/reach, then Matplotlib |
+| `gw_detectability_extras.py` | Optional radius/method checks and conditional continuation fits |
+| `gw_mismatch.py` | Two selected strain modes: file reader, manual/kuibit comparison, then diagnostic plot |
 | `paper_plots/` | Approved paper figures, registered in `run_paper.py` |
 | `wip_plots/` | Exploratory figures, registered in `run_wip.py` |
 | `helpers/` | Scalar/2D readers, units, shared style |
@@ -28,7 +30,25 @@ read-only simulation data (scalars, Psi4, 2D slices)
 | `run_logs/` | Ignored nohup logs and PID files |
 
 Scientific choices, output filenames and layout knobs sit at the top of each
-plot file. Shared modules hold only behavior several figures must share.
+plot's relevant section. GW numerical choices are at the top of the workflow;
+appearance choices sit beside the plotting code. The command-line parsers are
+at the bottom. Shared style and data readers keep the established conventions.
+
+## The three usual GW tasks
+
+Run these from the repository root in the plotting environment:
+
+| Task | Command | Where to edit |
+| --- | --- | --- |
+| Combined strain + distance figure | `python gw_detectability.py --radius-index 6` | `gw_detectability.py`: section 1 for scientific choices, section 4 for appearance |
+| Waveform mismatch, both methods | `python gw_mismatch.py --sims A1 A3` | `gw_mismatch.py`: settings, reader, calculations, analysis, plot |
+| Rebuild caches after a data update | `python generate_gw.py` | `config.py` selects cases/backend; `gw.py` implements the reader and FFI |
+
+The first two commands only read GW caches. They do not launch the other plots
+or regenerate waveforms. For a new computer, see the [combined-figure guide](notes/run_combined_gw_plot.md)
+or [mismatch guide](notes/gw_mismatch.md) for the exact input files.
+The mismatch additionally needs kuibit, which is already in the usual Anvil
+environment. Locally use `uv run --with kuibit==1.6.1 python gw_mismatch.py`.
 
 ## Running
 
@@ -50,16 +70,16 @@ Locally: `uv sync` once, then prefix commands with `uv run`. Tests:
 uv run python -m unittest discover -s tests -t .
 ```
 
-`run_all.py` stops if cache generation fails; plots only read caches. Set
+`run_all.py` stops if cache generation fails; GW plots only read caches. Set
 `RUN_GW_CACHE = False` in `config.py` only for an intentional plot-only rerun.
 
 ## WIP plots (`./run_wip.py <name>`)
 
 | Name | Output (under `figures/`) | What it shows |
 | --- | --- | --- |
-| `detectability` | `gw/gw_detectability_*` | h_c vs noise, SNR=8 reach, Shibata 50 Msun/100 Mpc case, time-on variants |
+| `detectability` | `gw/gw_detectability_*` | Default suite: measured combined figure, radius/averaging checks, fixed reference source, labelled extrapolation |
 | `temporal_trial` | `<case>/gw_temporal_*`, `gw/temporal_trial.json` | Opt-in Wessel mass-driven (2,2) tail; not in default runs |
-| `gw_mismatch` | `wip/gw_mismatch/<weighting>/A1_A3.*` | Opt-in A1/A3 complex (2,2) mismatch: independent NumPy and public kuibit calculations; [settings and equations](notes/gw_mismatch.md) |
+| `gw_mismatch` | `wip/gw_mismatch/<weighting>/<first>_<second>.*` | Opt-in complex (2,2) mismatch, A1/A3 by default: independent NumPy and installed kuibit calculations; [settings and equations](notes/gw_mismatch.md) |
 | `gw_radiated` | `wip/gw_radiated.{png,json}` | Radiated E, J_z (detectability modes) and (2,2) frequency over f_orb |
 | `psi4`, `strain`, `*_minus_ml` | `gw/`, `gw/difference/` | Waveforms and disk-minus-ML differences |
 | `strain_panel`, `strain_observer` | `gw/` | Polarization panel; face-on strain at 100 Mpc |
@@ -72,6 +92,24 @@ uv run python -m unittest discover -s tests -t .
 Paper figures keep stable LaTeX-facing names in `figures/`; individual
 products go to `figures/A1/` through `figures/B3/`. Nothing under `figures/`
 is tracked.
+
+To run only the GW diagnostics you need, use their direct commands:
+
+```bash
+# Radius/averaging checks, without extrapolation or a full mass/distance scan:
+python -m wip_plots.gw_detectability_all --plots radius averaging --sims A1 A3
+# Only strain histories at one extraction index:
+python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
+```
+
+`DEFAULT_PLOTS` near the top of `gw_detectability_all.py` is the single list
+of default diagnostic outputs. Choices are `combined`, `strain`, `distance`,
+`radius`, `averaging`, `reference` and `extrapolation`. The existing batch
+default includes extrapolation; selecting measured plots alone never runs its
+fits or reads scalar data. The [editing guide](notes/run_combined_gw_plot.md)
+explains each diagnostic. Waveform preparation is together in `waveform()` in
+`gw_waveforms.py`; `OUTPUTS` selects the five existing waveform families.
+Omitting the new options retains the usual batch selections and filenames.
 
 ## Compactness comparison
 
@@ -115,19 +153,21 @@ are normalized by the initial BH mass, not total ADM mass.
 ## GW conventions
 
 For **just the polished combined distance + characteristic-strain figure**, use
-the short directly runnable script (in the normal plotting environment):
+the complete workflow file (in the normal plotting environment):
 
 ```bash
-python plot_gw_detectability.py                   # current default: radius index 8
-python plot_gw_detectability.py --radius-index 6  # compare another extraction
+python gw_detectability.py                   # current default: radius index 8
+python gw_detectability.py --radius-index 6  # compare another extraction
 ```
 
 Outputs are `figures/gw/detectability/radius_<index>.{png,pdf}`, with caption,
 example parameters and input paths alongside. Each index gets separate files.
 For A cases index 6 means raw `Psi4_rad.mon.7`; index 7 means `.8`.
 Cached GW inputs are not included in GitHub. See
-[the short run/edit guide](notes/run_combined_gw_plot.md) for the two required
-files per case/radius and exactly where to edit the scientific and plot settings.
+[the run/edit guide](notes/run_combined_gw_plot.md) for the two required
+files per case/radius. The calculation and drawing are together in
+`gw_detectability.py`; the parser is at the bottom. `plot_gw_detectability.py`
+is now a compatibility alias.
 
 The combined detectability figure is 7 inches wide, with distance reach above
 characteristic strain, exterior legends and lettered source examples following

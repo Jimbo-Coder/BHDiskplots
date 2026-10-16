@@ -15,6 +15,7 @@ from wip_plots.accretion import accretion_history, late_mass_budget, plot_mass_b
 class AccretionTests(unittest.TestCase):
     def test_late_budget_rebases_every_quantity_on_common_interval(self):
         import gw_detectability as analysis
+        import gw_detectability_extras as extras
         history = dict(time_pc=np.array([0., 1., 2., 3.]),
                        bh_time_pc=np.array([.1, 1., 2., 2.5]),
                        mass_loss=np.array([0., 2., 4., 6.]),
@@ -22,7 +23,7 @@ class AccretionTests(unittest.TestCase):
                        bh_mass_gain=np.array([.1, 1., 2., 2.5]))
         sim = SimpleNamespace(config=self.config)
         trial = SimpleNamespace(fit=SimpleNamespace(start=20., end=80.))
-        with mock.patch.object(analysis, "temporal_trial_for_case", return_value=trial):
+        with mock.patch.object(extras, "temporal_trial_for_case", return_value=trial):
             late = late_mass_budget(sim, history)
         np.testing.assert_allclose(late["time_pc"], [.5, 1., 2.])
         np.testing.assert_allclose(late["mass_loss"], [0., 1., 3.])
@@ -30,7 +31,7 @@ class AccretionTests(unittest.TestCase):
         np.testing.assert_allclose(late["bh_mass_gain"], [0., .5, 1.5])
         self.assertEqual(history["recorded_accreted_mass"][0], 1.)
         trial.fit.end = 120.
-        with mock.patch.object(analysis, "temporal_trial_for_case", return_value=trial), \
+        with mock.patch.object(extras, "temporal_trial_for_case", return_value=trial), \
                 self.assertRaisesRegex(ValueError, "cover"):
             late_mass_budget(sim, history)
 

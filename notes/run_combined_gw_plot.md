@@ -1,6 +1,9 @@
 # Run or edit the combined GW figure
 
-The short entry point is **`plot_gw_detectability.py`** in the repository root.
+The complete measured workflow is **`gw_detectability.py`** in the repository
+root. It contains the cache readers, spectral calculation, detector weighting,
+SNR/reach calculation, and the combined figure in that order. The earlier
+`plot_gw_detectability.py` command remains only as a compatibility alias.
 It produces only the polished Wessel-style figure: luminosity-distance reach
 above characteristic strain. It reads cached, measured rPsi4, computes the
 spectra and detection distances, and draws the existing layout. No
@@ -12,9 +15,9 @@ Use the usual plotting environment, then:
 
 ```bash
 cd /anvil/projects/x-mca99s008/maxwork/BHDiskplots
-python plot_gw_detectability.py
-python plot_gw_detectability.py --radius-index 6
-python plot_gw_detectability.py --radius-index 7
+python gw_detectability.py
+python gw_detectability.py --radius-index 6
+python gw_detectability.py --radius-index 7
 ```
 
 Each radius has its own output names, so comparisons do not overwrite one
@@ -51,7 +54,7 @@ distances. The script does not change the global default or mix radii.
 
 ## Run it from a clone on another computer
 
-The code, detector curves and plotting dependencies are in GitHub. The
+This repository includes the code, detector curves and dependency list. The
 simulation-derived **GW caches are ignored by Git**. A fresh clone alone
 therefore does not contain enough data to reproduce the signal curves.
 
@@ -72,9 +75,9 @@ Then, from the checkout:
 
 ```bash
 uv sync
-uv run python plot_gw_detectability.py --radius-index 6
+uv run python gw_detectability.py --radius-index 6
 # Or point at a copy of the cache tree elsewhere:
-uv run python plot_gw_detectability.py --radius-index 6 --cache-dir /path/to/gw_work
+uv run python gw_detectability.py --radius-index 6 --cache-dir /path/to/gw_work
 ```
 
 The usual TeX installation with Palatino fonts is required for the established
@@ -88,23 +91,81 @@ the larger diagnostic suite, including conditional tails. It is not the
 recommended entry point for editing this one figure. Without the collaborator's
 actual command/error, we cannot identify which dependency caused their failure.
 
-## Where to edit
+## Read and edit the workflow
 
-1. **Cases and extraction index:** the three short defaults at the top of
-   `plot_gw_detectability.py`, or `--sims A1 A2 A3` and `--radius-index 6`.
-   `--example-labels key` puts the source-parameter key on the figure;
-   `caption` is the polished default and `inline` is also available.
-2. **Scientific choices:** the numbered settings block at the top of
-   `gw_detectability.py`: `MODES`, `TRANSIENT_CUTOFF_MBH`, `TAPER_ALPHA`,
-   `SOURCE_AVERAGING`, `LOW_FREQUENCY_CYCLES`, detector choices, example
-   masses and `SNR_THRESHOLD`. Its `analyze` function calls the steps in order.
-3. **Plot appearance:** `plot_combined` in
-   `wip_plots/gw_detectability_all.py` draws this figure. The display limits,
-   detector line styles, label sizes and figure height are near the top of
-   that same file. `_draw_horizon` and `_draw_characteristic_strain` draw the
-   individual panels. Shared TeX/fonts remain in `helpers/style.py`.
+These are the usual changes; each has one editing location:
 
-The driver is deliberately short: check inputs, compute, draw, print/save
-outputs. The mathematical routines are reused so changes can be checked
-against the existing numerical tests. The usual `run_wip.py detectability`
-workflow and its paper-facing output names keep working.
+| Change | Edit or command |
+| --- | --- |
+| Extraction radius | `--radius-index 6` (both panels recompute at that radius) |
+| Simulations | `--sims A1 A3`, or `SIM_NAMES` in section 1 |
+| Modes, transient cut, taper, averaging | Section 1: `MODES`, `TRANSIENT_CUTOFF_MBH`, `TAPER_ALPHA`, `SOURCE_AVERAGING` |
+| Illustrative BH masses/distances | Section 1: `EXAMPLE_TARGETS`; distance `None` solves the SNR threshold |
+| Detectors and SNR threshold | Section 1: `ACTIVE_DETECTORS`, `SNR_THRESHOLD` |
+| Numerical resolution and cosmology | Section 1, immediately below the physical choices |
+| Axis limits, labels, line styles | Section 4, beside `plot_combined` and its two panel functions |
+| Legend placement and panel spacing | `plot_combined` in section 4 |
+
+Read `gw_detectability.py` in order:
+
+1. **Settings and inputs:** a compact physical-choice block, the cache column
+   reader, and the detector-table reader. Radius index 6 maps to file label 7.
+2. **Calculation:** time cuts, Tukey window, FFT, harmonic reconstruction,
+   plus/cross amplitude, solid-angle mean, conversion from Psi4 to strain,
+   observer mass/redshift scaling, PSD weighting and SNR/distance roots.
+   These are actual equations and array operations in this file.
+3. **Complete workflow:** `analyze` shows the case loop, reads each selected
+   cache, calls the spectral calculation with explicit choices, constructs noise,
+   solves the example scales, and computes distance-reach curves.
+4. **Plot and format:** `plot_combined` and its two shared panel functions
+   contain the Matplotlib code. Limits, line styles and label placement sit
+   beside the drawing code. The renderer is not imported from a WIP module.
+
+The command-line parser is at the bottom. The few presentation options remain
+available, including `--example-labels key`, but they are outside the path
+through the calculation. The standard font/style and cache-generation readers
+remain shared with other figures. Optional validation sweeps and continuation
+fits live in `gw_detectability_extras.py`; they do not run for this command.
+The WIP suite reuses the same calculation and renderer instead of maintaining
+another production implementation.
+
+## Run a specific diagnostic
+
+The main combined figure still uses the root command above. For diagnostic
+subsets, the WIP runner has one list, `DEFAULT_PLOTS`, instead of interacting
+per-panel switches. Override it without editing the source:
+
+```bash
+python -m wip_plots.gw_detectability_all --plots radius averaging --sims A1 A3
+python -m wip_plots.gw_detectability_all --plots strain distance
+```
+
+| Plot name | Calculation and output |
+| --- | --- |
+| `combined` | Measured characteristic strain and distance reach together |
+| `strain` | Measured characteristic strain on its own |
+| `distance` | Measured SNR-threshold distance on its own |
+| `radius` | Outer/inner extraction-radius comparison |
+| `averaging` | Source-direction average versus one representative direction |
+| `reference` | Measured strain at the fixed 50 solar mass, 100 Mpc reference source |
+| `extrapolation` | Combined figure with the optional fitted continuation beyond the measured end; requires scalar data |
+
+The default list preserves the existing batch exports, including the labelled
+extrapolation. A selected measured diagnostic does not run that fit or load
+unrequested radius/direction comparisons. Only `combined` and `distance` need
+the full measured mass-versus-distance scan. Illustrative strain sources still
+solve their own threshold distances, as described above.
+
+For waveform histories, the five data-preparation branches are together in
+`waveform()` in `wip_plots/gw_waveforms.py`. For example:
+
+```bash
+python -m wip_plots.gw_waveforms --kinds strain --radius-index 6 --sims A1 A3
+```
+
+The available families are `psi4`, `strain`, `psi4_minus_ml`, `strain_minus_ml`
+and `strain_from_psi4_minus_ml`. The last two remain distinct: subtracting two
+FFI strains and integrating a Psi4 difference use different caches. The reader,
+subtraction, and normalization calls are visible in each branch. Shared units
+and labels remain in `helpers/gw_units.py`. Both parsers are at the bottom of
+their scripts, below the calculations and plots.

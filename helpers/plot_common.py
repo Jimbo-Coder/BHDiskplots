@@ -9,7 +9,8 @@ from .style import apply_paper_style
 
 
 def parser(description):
-    p = argparse.ArgumentParser(description=description)
+    p = argparse.ArgumentParser(
+        description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--sims", nargs="+", default=None, help="Simulation names to include, e.g. A1 A2 B1")
     p.add_argument("--outdir", type=Path, default=PLOTS_DIR, help="Directory for saved figures")
     p.add_argument("--show", action="store_true", help="Show figure interactively after saving")

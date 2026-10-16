@@ -8,6 +8,11 @@ errors are controlled. Equations below use LaTeX notation.
 (FFI); the measured detectability baseline Fourier-transforms Psi4 directly.
 The latter does not Fourier-transform the cached FFI strain.
 
+The [short GW and PPI summary](human_gw_method.md) gives the physical argument
+and the full workflow in one place. Section 10 below derives the azimuthal
+selection rules and explains their limits. That interpretation was added on
+2026-10-06; it does not change the analysis settings or measured results.
+
 ## 1. Units, Extraction, and Time
 
 The simulations use $G=c=M_\odot=1$. One raw code-time unit is
@@ -357,9 +362,12 @@ f_{22}=\frac1{2\pi}\left|\frac{d}{dt}\arg P_{22}\right|,
 $$
 
 averaged over one orbital period $P_c$ and shown as $f_{22}/f_{\rm orb}$ with
-$f_{\rm orb}=\Omega_{\rm orb,0}/2\pi$. Including the $m=0$ modes raises
-$E_{\rm GW}$ by $10^4$-$10^5$. That content is FFI drift or other
-non-radiative signal, so the physical totals exclude it.
+$f_{\rm orb}=\Omega_{\rm orb,0}/2\pi$. Earlier checks found that including
+$m=0$ raised the FFI-derived energy by $10^4$-$10^5$. Such sensitivity warrants
+investigation of integration drift and nonradiative contamination; it does
+not establish that all $m=0$ emission is unphysical. These diagnostics report
+the selected nonaxisymmetric modes, not the total physical energy or angular
+momentum radiated by the system.
 
 ## 9. Algorithm Summary (LaTeX)
 
@@ -410,6 +418,148 @@ mass and luminosity distance, and compared with detector noise averaged over
 sky position and polarization angle. For this amplitude, that noise is
 $S_{\rm eff}=\tfrac52S_n$ for a right-angle interferometer.
 
+## 10. PPI Interpretation and Matter to GW Mode Coupling
+
+### Physical picture
+
+The Papaloizou-Pringle instability (PPI) is a global nonaxisymmetric
+hydrodynamic instability of a differentially rotating torus. A useful cartoon
+shows disturbances on either side of corotation, where the pattern angular
+speed equals the fluid angular speed. Coupling between waves carrying opposite
+signs of wave energy/angular momentum, with suitable trapping at the torus
+boundaries, can amplify the pattern. Low-order modes, often $m=1$ in thick
+tori, can produce an orbiting overdensity. Angular-momentum redistribution
+and changes to the torus can then limit growth [R3, R7]. This is a physical
+interpretation to compare with the evolution, not a universal saturation time.
+
+The Toomre diagnostics address local gravitational stability under their stated
+approximations; $Q>1$ does not rule out a global hydrodynamic PPI. An orbiting
+lump is a schematic explanation of a time-dependent source multipole, not a
+literal radiating mass dipole. A quantitative lump/BH model must use the whole
+system and a consistent center-of-mass frame.
+
+### Density modes and radiation modes are different objects
+
+A density mode $C_m$ labels azimuthal structure of a scalar matter field.
+The plotted $C_m/C_0$ uses a density-cut diagnostic integral, with $C_0$ not
+equal to the total disk mass. A radiation coefficient $h_{\ell m}$ instead
+belongs to
+
+$$
+h_+-i h_\times=\sum_{\ell=2}^{\infty}\sum_{m=-\ell}^{\ell}
+h_{\ell m}\,{}_{-2}Y_{\ell m}(\theta,\phi).
+$$
+
+These are **spin-weight $-2$ spherical harmonics** [R6]. The spin weight
+describes transformation under rotation of the polarization basis and requires
+$\ell\ge |s|=2$. Thus $h_{21}$ is an allowed quadrupolar radiation mode with
+azimuthal number one; it is not dipole radiation. Neither $\ell=0$ nor
+$\ell=1$ occurs in this strain expansion. Observable plus and cross strains
+come from the coherent harmonic reconstruction in Sec. 3. Naming the real
+and negative imaginary parts of a complex mode as modal plus/cross components
+is a storage convention, not a choice of observer direction.
+
+### Linear selection and the equatorial symmetry condition
+
+For an axisymmetric background, consider a perturbation
+$\delta\rho=\epsilon\,\hat\rho_{m_p}(r,\theta)e^{i(m_p\phi-\omega_pt)}$
+plus its complex conjugate. We use $Q$ for source mass multipoles:
+$Q_{ij}$ is the Cartesian quadrupole tensor and $Q_{2m}$ its spherical
+components, with fixed harmonic normalization. At leading Newtonian order
+the general scalar mass multipole is
+
+$$
+Q_{\ell m}=\int\rho\,r^\ell Y_{\ell m}^{*}\,d^3x,
+\qquad
+\delta Q_{\ell m}\propto\epsilon\int_0^{2\pi}
+e^{i(m_p-m)\phi}\,d\phi
+=2\pi\epsilon\,\delta_{m,m_p}\times
+\text{radial and polar overlap}.
+$$
+
+The azimuthal rule is therefore $m_{\rm GW}=m_p$ at linear order, allowing
+for the conjugate negative-$m$ sector and Fourier-sign conventions. It does
+not fix $\ell$, guarantee a nonzero polar overlap, or predict the amplitude.
+The quadrupole cartoon has $h_{2m}^{\rm mass}\propto\ddot Q_{2m}$; our actual
+GW extraction uses $\Psi_4$, not this Newtonian source integral.
+
+In particular, $Y_{21}\propto\sin\theta\cos\theta\,e^{i\phi}$ is odd under
+$z\mapsto-z$. An exactly equatorially symmetric density has $Q_{21}=0$.
+Consequently the statement “an $m=1$ density perturbation linearly produces
+a mass-quadrupole $h_{21}$” needs this symmetry qualification. An $m=1$
+radiative sector can still contain a current-quadrupole $(2,1)$ contribution
+or a mass-octupole $(3,1)$ contribution. The familiar reflection-symmetric
+mass/current classification is mass type for even $\ell+m$ and current type
+for odd $\ell+m$ [R6]; without the symmetry both types may contribute.
+
+### Nonlinear selection and frequency harmonics
+
+Products in the fluid, stress, and gravitational-field equations obey
+
+$$
+e^{i(m_1\phi-\omega_1t)}e^{\pm i(m_2\phi-\omega_2t)}
+=e^{i[(m_1\pm m_2)\phi-(\omega_1\pm\omega_2)t]}.
+$$
+
+For the difference term, the minus sign represents a conjugate factor;
+its temporal frequency is conjugated as well if complex growth frequencies
+are used. With real oscillation frequencies this gives the displayed sum
+and difference rule. The signed azimuthal sectors are $m_1\pm m_2$;
+$|m_1\pm m_2|$ is a shorthand when discussing positive mode numbers.
+
+| Source product | Allowed azimuthal sectors | Interpretation |
+| --- | --- | --- |
+| $1\times1$ | $0,\pm2$ | An $m=1$ pattern can generate an $m=2$ source component at quadratic order. |
+| $2\times2$ | $0,\pm4$ | An isolated $m=2$ pattern cannot generate $m=1$ through self-coupling. |
+| $2\times1$ | $\pm1,\pm3$ | Mixed modes can feed an odd sector. |
+
+An axisymmetric background plus only even $m$ retains symmetry under
+$\phi\mapsto\phi+\pi$; odd sectors require an odd seed or some other breaking
+of that symmetry. These are necessary selection rules, not measured coupling
+coefficients. The mass-multipole integral is linear in the actual density:
+the quadratic $1\times1$ route means that nonlinear evolution generates the
+relevant source structure, not that the integral itself squares $\rho$.
+
+For a common steadily rotating pattern, $\omega_m=m\Omega_p$, so a quadratic
+$m=1$ harmonic and a direct $m=2$ component can both radiate near
+$2\Omega_p$. Their frequency agreement alone cannot distinguish these routes.
+A weak-perturbation scaling $h^{(2)}\sim\epsilon^2$ is a possible diagnostic
+of a quadratic route, not a universal relation between our $C_m$ and $h_{\ell m}$.
+
+### What the present comparison supports
+
+`wip_plots/mode_appendix.py` compares density $m=1,2$ with GW $(2,1),(2,2)$
+over a common interval starting no earlier than $t/P_c=10$. It folds the
+complex FFT over positive/negative frequencies, uses a Tukey window with
+$\alpha=0.10$, converts each GW $\Psi_4$ spectrum to characteristic-strain
+shape by dividing by frequency, and normalizes **each curve to its own peak**.
+These settings belong to the frequency comparison; the detectability
+preprocessing remains Sec. 4 ($\alpha=0.05$).
+
+The comparison supports statements about frequency/harmonic consistency.
+It does not compare absolute matter/GW amplitudes or establish causal
+nonlinear transfer. A specific attribution needs supporting phase relations,
+growth/scaling evidence, source symmetry/multipoles, or explicit coupling
+diagnostics. Claims about saturation by transport additionally need the
+angular-momentum evolution. A modeled waveform tail cannot supply that evidence.
+
+### Compact prose for the paper
+
+```latex
+We interpret the nonaxisymmetric disk evolution in terms of the global
+Papaloizou--Pringle instability and compare its measured matter modes with
+the extracted gravitational radiation. Matter modes label azimuthal
+structure, whereas the radiation is expanded in spin-weight $-2$ spherical
+harmonics with $\ell\ge2$. Linear response about an axisymmetric background
+preserves azimuthal number; nonlinear products permit sum and difference
+sectors. An $m=1$ pattern can therefore generate an $m=2$ source component
+at quadratic order, while a pure even-$m$ source cannot generate odd sectors
+without symmetry breaking. Polar overlap and equatorial symmetry further
+restrict the radiative multipoles. Agreement of spectral peaks is consistent
+with a common rotating pattern, but does not by itself establish the coupling
+mechanism or its contribution to the waveform amplitude.
+```
+
 ## Paper Checklist and References
 
 State the extraction sphere, mass convention, retained modes/time interval,
@@ -443,9 +593,28 @@ all transients, memory, or nonradiative contamination have been removed.
   [arXiv:1803.01944](https://arxiv.org/abs/1803.01944). The SciRDv1 table equals
   twice their two-channel curve; cite for the LISA channel/averaging factors.
 
+- **[R6] Marsat, Faye, Blanchet & Iyer (2012)**, *Post-Newtonian Prediction
+  for the (2,2) Mode of the Gravitational Wave Emitted by Compact Binaries*,
+  ASP Conference Series 467, 197, Sec. 3, Eqs. (8), (11):
+  [author-hosted proceedings PDF](https://apc.u-paris.fr/~beckmann/Proceedings/Marsat.pdf).
+  This gives the spin-weight $-2$ decomposition and the planar-binary
+  mass/current selection rule. The disk $Q_{21}=0$ statement above follows
+  directly from density reflection symmetry and the parity of $Y_{21}$;
+  binary dynamics are not assumed for the disk.
+- **[R7] Bugli et al. (2018)**, *Papaloizou-Pringle instability suppression
+  by the magnetorotational instability in relativistic accretion discs*,
+  MNRAS 475, 108, Sec. 1 and Fig. 1:
+  [journal article](https://academic.oup.com/mnras/article/475/1/108/4718469).
+  Cite for the corotation/wave-interaction cartoon. Their magnetic suppression
+  results do not establish that mechanism in our runs.
+
 Implementation pointers: [gw.py](../gw.py) (`reconstruct_strain`),
 [gw_detectability.py](../gw_detectability.py) (numbered analysis sections),
 [gw_strain_observer.py](../wip_plots/gw_strain_observer.py) (face-on time series),
 [gw_radiated.py](../wip_plots/gw_radiated.py) (radiated E, J and frequency).
-Plot formatting is separate in
-[gw_detectability_all.py](../wip_plots/gw_detectability_all.py).
+The combined figure's formatting is in section 4 of
+[gw_detectability.py](../gw_detectability.py), alongside its calculation.
+[gw_detectability_all.py](../wip_plots/gw_detectability_all.py) draws additional
+diagnostics using that implementation. The separate coherent-mode comparison
+is entirely in [gw_mismatch.py](../gw_mismatch.py), with its definition and
+inputs in [the mismatch note](gw_mismatch.md).
